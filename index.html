@@ -197,8 +197,7 @@ tbody tr:hover{background:var(--sandbg);}
       <div><label>Pestaña Óvalo 2025</label><input id="cfgOvalo2025"></div>
     </div>
     <div class="two-col">
-      <div><label>Habitaciones Torre Dunas</label><input id="cfgRoomsTorre" type="number"></div>
-      <div><label>Habitaciones Óvalo</label><input id="cfgRoomsOvalo" type="number"></div>
+      <div><label>Habitaciones (respaldo, solo si el Sheet no trae la columna "TOTAL HABITACIONES")</label><input id="cfgRoomsTorre" type="number"></div>
     </div>
     <label>Auto-actualizar cada (minutos, 0 = desactivado)</label>
     <input id="cfgAutoRefresh" type="number" min="0">
@@ -217,22 +216,47 @@ tbody tr:hover{background:var(--sandbg);}
 
 <script>
 /* ================= CONFIG ================= */
-const DEFAULT_COLMAP = {
-  semana:'B', fecha:'C', hv:'E', adultos:'L', ninos:'M',
-  hab_wistron:'P', hab_inventec:'Q', hab_empresas:'U', hab_otas:'W', hab_consulado:'AA',
-  tarifa_wistron:'AD', tarifa_inventec:'AE', tarifa_empresas:'AI', tarifa_otas:'AK', tarifa_consulado:'AO', tarifa_promedio:'AP',
-  venta_wistron:'AS', venta_inventec:'AT', venta_empresas:'AX', venta_otas:'BA', venta_consulado:'BC',
+// Torre Dunas (DIRECTOR 2026 / DIRECTOR 2025) — estructura confirmada
+const TORRE_COLMAP = {
+  semana:'B', fecha:'C', totalHabDia:'D', hv:'E', adultos:'L', ninos:'M',
+  tarifa_promedio:'AP',
   venta_neta:'BF', iva:'BG', ish:'BI', total_general:'BK',
   miscelaneos:'BL', abono_cuenta:'BM', efectivo:'BN', cxc:'BT', tarjeta:'BU', terminal:'BV', transferencia:'BX', anticipos:'BY'
 };
+const TORRE_SEGMENTS = [
+  {key:'wistron', label:'Wistron', col:'AS'},
+  {key:'inventec', label:'Inventec', col:'AT'},
+  {key:'empresas', label:'Empresas', col:'AX'},
+  {key:'otas', label:'Otas', col:'BA'},
+  {key:'consulado', label:'Consulado', col:'BC'}
+];
+// Óvalo (OVALO 2026 / VENTAS OVALO 2025) — estructura confirmada desde tu Excel
+const OVALO_COLMAP = {
+  semana:'B', fecha:'C', totalHabDia:'D', hv:'E', adultos:'L', ninos:'M',
+  tarifa_promedio:'AD',
+  venta_neta:'AM', iva:'AN', ish:'AP', total_general:'AR',
+  miscelaneos:'AS', abono_cuenta:'AT', efectivo:'AU', cxc:'BA', tarjeta:'BB', terminal:'BC', transferencia:'BE', anticipos:'BF'
+};
+const OVALO_SEGMENTS = [
+  {key:'otros', label:'Otros', col:'AE'},
+  {key:'empresas', label:'Empresas', col:'AF'},
+  {key:'olague', label:'Olague', col:'AG'},
+  {key:'wistron', label:'Wistron', col:'AH'},
+  {key:'consulado', label:'Consulado', col:'AI'},
+  {key:'otas', label:'Otas', col:'AJ'},
+  {key:'setteppi', label:'Setteppi', col:'AK'},
+  {key:'grupoangel', label:'Grupo Angel', col:'AL'}
+];
 const DEFAULTS = {
   sheetId: '1ubmbP5da8--qiYNaQFC60MutkpeaABC80pjzCwXiEUw',
   tabs: { torre2026:'DIRECTOR 2026', torre2025:'DIRECTOR 2025', ovalo2026:'OVALO 2026', ovalo2025:'VENTAS OVALO 2025' },
-  roomsTorre: 105, roomsOvalo: 40,
+  roomsFallback: 100, // solo se usa si el Sheet no trae capacidad diaria (columna D)
   autoRefreshMin: 10,
-  mapTorre: DEFAULT_COLMAP, mapOvalo: DEFAULT_COLMAP
+  mapTorre: TORRE_COLMAP, mapOvalo: OVALO_COLMAP,
+  segTorre: TORRE_SEGMENTS, segOvalo: OVALO_SEGMENTS
 };
-const SEGMENT_COLORS = { wistron:'#c9a06f', inventec:'#8a5a2e', empresas:'#5b8fb9', otas:'#8e6db5', consulado:'#2ecc71' };
+const PALETTE = ['#8a5a2e','#c9a06f','#d9b48f','#5b8fb9','#2ecc71','#f59e0b','#ec4899','#8e6db5','#4b5563','#0ea5e9'];
+function colorFor(key, list){ const i = list.findIndex(s=>s.key===key); return PALETTE[i % PALETTE.length]; }
 
 let CFG = null;
 let RAW = {}; // torre2026, torre2025, ovalo2026, ovalo2025 -> array of daily records
@@ -257,8 +281,7 @@ function parseDateFlexible(s){
   let m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (m){
     const d = parseInt(m[1],10), mo = parseInt(m[2],10), y = parseInt(m[3],10);
-    if (d>12 && mo<=12) return new Date(y, mo-1, d);
-    return new Date(y, mo-1, d); // D/M/YYYY (locale MX)
+    return new Date(y, mo-1, d);
   }
   m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
   if (m) return new Date(+m[1], +m[2]-1, +m[3]);
@@ -311,25 +334,24 @@ async function fetchTab(sheetId, sheetName){
   if (text.trim().startsWith('<')) throw new Error(`No se pudo leer la pestaña "${sheetName}" (revisa el nombre exacto o permisos).`);
   return parseCSV(text);
 }
-function parseRows(rows, map){
-  const fechaIdx = colIdx(map.fecha), semanaIdx = colIdx(map.semana);
+function parseRows(rows, map, segments){
+  const fechaIdx = colIdx(map.fecha), semanaIdx = colIdx(map.semana), habIdx = colIdx(map.totalHabDia);
   const records = [];
   let lastSemana = null;
   for (const row of rows){
-    const fechaRaw = row[fechaIdx];
-    const d = parseDateFlexible(fechaRaw);
+    const d = parseDateFlexible(row[fechaIdx]);
     if (!d || isNaN(d.getTime())) continue;
     if (d.getFullYear() < 2015 || d.getFullYear() > 2035) continue;
     const semRaw = row[semanaIdx];
     if (semRaw !== undefined && String(semRaw).trim() !== '') lastSemana = cleanNum(semRaw);
     const g = (key) => cleanNum(row[colIdx(map[key])]);
+    const seg = {};
+    for (const s of segments) seg[s.key] = (seg[s.key]||0) + cleanNum(row[colIdx(s.col)]);
     records.push({
       fecha: d, fechaStr: fmtDate(d), semana: lastSemana,
+      totalHabDia: cleanNum(row[habIdx]),
       hv: g('hv'), adultos: g('adultos'), ninos: g('ninos'),
-      seg: {
-        wistron: g('venta_wistron'), inventec: g('venta_inventec'), empresas: g('venta_empresas'),
-        otas: g('venta_otas'), consulado: g('venta_consulado')
-      },
+      seg,
       tarifaPromedio: g('tarifa_promedio'),
       ventaNeta: g('venta_neta'), totalGeneral: g('total_general'),
       efectivo: g('efectivo'), tarjeta: g('tarjeta'), transferencia: g('transferencia'), cxc: g('cxc')
@@ -349,10 +371,10 @@ async function loadAll(){
       fetchTab(CFG.sheetId, CFG.tabs.ovalo2026),
       fetchTab(CFG.sheetId, CFG.tabs.ovalo2025)
     ]);
-    RAW.torre2026 = parseRows(t26, CFG.mapTorre);
-    RAW.torre2025 = parseRows(t25, CFG.mapTorre);
-    RAW.ovalo2026 = parseRows(o26, CFG.mapOvalo);
-    RAW.ovalo2025 = parseRows(o25, CFG.mapOvalo);
+    RAW.torre2026 = parseRows(t26, CFG.mapTorre, CFG.segTorre);
+    RAW.torre2025 = parseRows(t25, CFG.mapTorre, CFG.segTorre);
+    RAW.ovalo2026 = parseRows(o26, CFG.mapOvalo, CFG.segOvalo);
+    RAW.ovalo2025 = parseRows(o25, CFG.mapOvalo, CFG.segOvalo);
     setStatus('ok', 'Conectado');
     document.getElementById('chipUpdate').textContent = 'Última actualización: ' + new Date().toLocaleTimeString('es-MX');
     document.getElementById('loadingScreen').classList.add('hidden');
@@ -394,8 +416,8 @@ function combineGeneral(recA, recB){
   for (const r of recB){
     if (map.has(r.fechaStr)){
       const ex = map.get(r.fechaStr);
-      ex.hv += r.hv; ex.adultos += r.adultos; ex.ninos += r.ninos;
-      for (const k in r.seg) ex.seg[k] += r.seg[k];
+      ex.hv += r.hv; ex.adultos += r.adultos; ex.ninos += r.ninos; ex.totalHabDia += r.totalHabDia;
+      for (const k in r.seg) ex.seg[k] = (ex.seg[k]||0) + r.seg[k];
       ex.ventaNeta += r.ventaNeta; ex.totalGeneral += r.totalGeneral;
       ex.efectivo += r.efectivo; ex.tarjeta += r.tarjeta; ex.transferencia += r.transferencia; ex.cxc += r.cxc;
       ex.tarifaPromedio = ex.hv>0 ? (ex.ventaNeta/ex.hv) : 0;
@@ -406,15 +428,23 @@ function combineGeneral(recA, recB){
   return Array.from(map.values()).sort((a,b)=>a.fecha-b.fecha);
 }
 function getYearData(prop, yearKey){
-  // yearKey: '2026' | '2025'
   if (prop === 'torre') return RAW['torre'+yearKey] || [];
   if (prop === 'ovalo') return RAW['ovalo'+yearKey] || [];
   return combineGeneral(RAW['torre'+yearKey]||[], RAW['ovalo'+yearKey]||[]);
 }
-function totalRoomsFor(prop){
-  if (prop === 'torre') return CFG.roomsTorre;
-  if (prop === 'ovalo') return CFG.roomsOvalo;
-  return CFG.roomsTorre + CFG.roomsOvalo;
+function segmentsFor(prop){
+  if (prop === 'torre') return CFG.segTorre;
+  if (prop === 'ovalo') return CFG.segOvalo;
+  // GENERAL: unión de ambos, sin duplicar keys repetidos (wistron, empresas, otas, consulado se comparten)
+  const seen = new Set(); const out = [];
+  for (const s of [...CFG.segTorre, ...CFG.segOvalo]){
+    if (!seen.has(s.key)){ seen.add(s.key); out.push(s); }
+  }
+  return out;
+}
+function sumRooms(records){
+  const s = records.reduce((s,r)=>s+(r.totalHabDia||0),0);
+  return s>0 ? s : records.length*CFG.roomsFallback;
 }
 function filterByDate(records, desde, hasta){
   return records.filter(r => (!desde || r.fechaStr >= desde) && (!hasta || r.fechaStr <= hasta));
@@ -423,11 +453,11 @@ function weeklyAgg(records){
   const m = new Map();
   for (const r of records){
     const w = r.semana ?? -1;
-    if (!m.has(w)) m.set(w, {semana:w, hv:0, ventaNeta:0, totalGeneral:0, tarifaSum:0, tarifaN:0, seg:{wistron:0,inventec:0,empresas:0,otas:0,consulado:0}, days:0, ocupSum:0});
+    if (!m.has(w)) m.set(w, {semana:w, hv:0, ventaNeta:0, totalGeneral:0, tarifaSum:0, tarifaN:0, seg:{}, days:0, rooms:0});
     const a = m.get(w);
-    a.hv += r.hv; a.ventaNeta += r.ventaNeta; a.totalGeneral += r.totalGeneral;
+    a.hv += r.hv; a.ventaNeta += r.ventaNeta; a.totalGeneral += r.totalGeneral; a.rooms += (r.totalHabDia||0);
     a.tarifaSum += r.tarifaPromedio; a.tarifaN++;
-    for (const k in r.seg) a.seg[k] += r.seg[k];
+    for (const k in r.seg) a.seg[k] = (a.seg[k]||0) + r.seg[k];
     a.days++;
   }
   return Array.from(m.values()).filter(a=>a.semana!==-1).sort((a,b)=>a.semana-b.semana);
@@ -452,20 +482,18 @@ function renderAll(){
   const compare = document.getElementById('fCompareYear').value;
 
   const data26 = filterByDate(getYearData(currentProp,'2026'), desde, hasta);
-  const rooms = totalRoomsFor(currentProp);
   const days = data26.length || 1;
+  const roomsSum = sumRooms(data26);
 
-  // header KPIs
-  document.getElementById('hTotalHab').textContent = (rooms*days).toLocaleString('es-MX');
+  document.getElementById('hTotalHab').textContent = Math.round(roomsSum).toLocaleString('es-MX');
   const totalGen = data26.reduce((s,r)=>s+r.totalGeneral,0);
   document.getElementById('hTotalGen').textContent = fmtMoney(totalGen);
   document.getElementById('chipRango').textContent = desde && hasta ? `${desde} → ${hasta} (${days} días)` : 'Selecciona un rango';
 
-  // KPI row
   const ventaProm = totalGen/days;
   const ventaNeta = data26.reduce((s,r)=>s+r.ventaNeta,0);
   const hv = data26.reduce((s,r)=>s+r.hv,0);
-  const ocup = rooms>0 ? (hv/(rooms*days))*100 : 0;
+  const ocup = roomsSum>0 ? (hv/roomsSum)*100 : 0;
   const tarifaProm = data26.length ? data26.reduce((s,r)=>s+r.tarifaPromedio,0)/data26.length : 0;
 
   document.getElementById('kVentaProm').textContent = fmtMoney2(ventaProm);
@@ -479,7 +507,7 @@ function renderAll(){
     const totalGen25 = data25.reduce((s,r)=>s+r.totalGeneral,0);
     const hv25 = data25.reduce((s,r)=>s+r.hv,0);
     const ventaNeta25 = data25.reduce((s,r)=>s+r.ventaNeta,0);
-    setDelta('kVentaPromSub', totalGen25 ? (totalGen/(data25.length||1)) : null, data25.length? totalGen25/data25.length : null);
+    setDelta('kVentaPromSub', totalGen, data25.length? totalGen25/(data25.length||1) : null);
     setDelta('kVentaNetaSub', ventaNeta, ventaNeta25);
     setDelta('kHVSub', hv, hv25);
   } else {
@@ -514,7 +542,6 @@ function renderCharts(data26, desde, hasta, compare){
   }
   const align25 = (key) => w26.map(w => { const f = w25.find(x=>x.semana===w.semana); return f ? f[key] : null; });
 
-  // Ingresos
   destroyChart('ing');
   charts.ing = new Chart(document.getElementById('chartIngresos'), {
     type:'line',
@@ -525,18 +552,17 @@ function renderCharts(data26, desde, hasta, compare){
     options:{responsive:true, plugins:{legend:{position:'bottom', labels:{boxWidth:10,font:{size:10}}}}, scales:{y:{ticks:{callback:v=>'$'+(v/1000).toFixed(0)+'k'}}}}
   });
 
-  // Segmentos (últimas semanas, stacked horizontal bar)
+  const segDefs = segmentsFor(currentProp);
   const lastWeeks = w26.slice(-5);
   destroyChart('seg');
   charts.seg = new Chart(document.getElementById('chartSegmentos'), {
     type:'bar',
-    data:{ labels: lastWeeks.map(w=>'Sem '+w.semana), datasets: Object.keys(SEGMENT_COLORS).map(k=>({
-      label:k.charAt(0).toUpperCase()+k.slice(1), data:lastWeeks.map(w=>w.seg[k]), backgroundColor:SEGMENT_COLORS[k]
+    data:{ labels: lastWeeks.map(w=>'Sem '+w.semana), datasets: segDefs.map(s=>({
+      label:s.label, data:lastWeeks.map(w=>w.seg[s.key]||0), backgroundColor:colorFor(s.key,segDefs)
     })) },
     options:{indexAxis:'y', responsive:true, plugins:{legend:{position:'bottom',labels:{boxWidth:10,font:{size:9}}}}, scales:{x:{stacked:true,ticks:{callback:v=>'$'+(v/1000).toFixed(0)+'k'}},y:{stacked:true}}}
   });
 
-  // HV
   destroyChart('hv');
   charts.hv = new Chart(document.getElementById('chartHV'), {
     type:'bar',
@@ -547,17 +573,14 @@ function renderCharts(data26, desde, hasta, compare){
     options:{responsive:true, plugins:{legend:{position:'bottom',labels:{boxWidth:10,font:{size:10}}}}}
   });
 
-  // Ocupación donut (por semana, promedio del rango)
-  const rooms = totalRoomsFor(currentProp);
   destroyChart('ocup');
-  const ocupData = w26.map(w => rooms>0 ? Math.min(100,(w.hv/(rooms*w.days))*100) : 0);
+  const ocupData = w26.map(w => w.rooms>0 ? Math.min(100,(w.hv/w.rooms)*100) : 0);
   charts.ocup = new Chart(document.getElementById('chartOcup'), {
     type:'doughnut',
-    data:{ labels: weekLabels, datasets:[{ data: ocupData, backgroundColor:['#8a5a2e','#c9a06f','#d9b48f','#5b8fb9','#2ecc71','#f59e0b','#ec4899','#8e6db5'] }] },
+    data:{ labels: weekLabels, datasets:[{ data: ocupData, backgroundColor:PALETTE }] },
     options:{responsive:true, plugins:{legend:{position:'bottom',labels:{boxWidth:9,font:{size:9}}}, tooltip:{callbacks:{label:(c)=>c.label+': '+c.raw.toFixed(1)+'%'}}}}
   });
 
-  // Tarifa promedio
   destroyChart('tarifa');
   charts.tarifa = new Chart(document.getElementById('chartTarifa'), {
     type:'line',
@@ -570,9 +593,8 @@ function renderCharts(data26, desde, hasta, compare){
 }
 
 function renderTable(data26){
-  const rooms = totalRoomsFor(currentProp);
   let rows = data26.map(r=>({
-    fecha:r.fechaStr, semana:r.semana, hv:r.hv, ocup: rooms>0?(r.hv/rooms*100):0,
+    fecha:r.fechaStr, semana:r.semana, hv:r.hv, ocup: r.totalHabDia>0?(r.hv/r.totalHabDia*100):0,
     tarifa:r.tarifaPromedio, ventaNeta:r.ventaNeta, totalGeneral:r.totalGeneral
   }));
   const q = document.getElementById('tblSearch').value.trim().toLowerCase();
@@ -612,8 +634,7 @@ function fillSettingsForm(){
   document.getElementById('cfgTorre2025').value = CFG.tabs.torre2025;
   document.getElementById('cfgOvalo2026').value = CFG.tabs.ovalo2026;
   document.getElementById('cfgOvalo2025').value = CFG.tabs.ovalo2025;
-  document.getElementById('cfgRoomsTorre').value = CFG.roomsTorre;
-  document.getElementById('cfgRoomsOvalo').value = CFG.roomsOvalo;
+  document.getElementById('cfgRoomsTorre').value = CFG.roomsFallback;
   document.getElementById('cfgAutoRefresh').value = CFG.autoRefreshMin;
   document.getElementById('cfgMapTorre').value = JSON.stringify(CFG.mapTorre, null, 1);
   document.getElementById('cfgMapOvalo').value = JSON.stringify(CFG.mapOvalo, null, 1);
@@ -625,8 +646,7 @@ document.getElementById('btnSaveSettings').addEventListener('click', async ()=>{
     CFG.tabs.torre2025 = document.getElementById('cfgTorre2025').value.trim();
     CFG.tabs.ovalo2026 = document.getElementById('cfgOvalo2026').value.trim();
     CFG.tabs.ovalo2025 = document.getElementById('cfgOvalo2025').value.trim();
-    CFG.roomsTorre = parseInt(document.getElementById('cfgRoomsTorre').value)||CFG.roomsTorre;
-    CFG.roomsOvalo = parseInt(document.getElementById('cfgRoomsOvalo').value)||CFG.roomsOvalo;
+    CFG.roomsFallback = parseInt(document.getElementById('cfgRoomsTorre').value)||CFG.roomsFallback;
     CFG.autoRefreshMin = parseInt(document.getElementById('cfgAutoRefresh').value)||0;
     CFG.mapTorre = JSON.parse(document.getElementById('cfgMapTorre').value);
     CFG.mapOvalo = JSON.parse(document.getElementById('cfgMapOvalo').value);
@@ -650,6 +670,7 @@ function setupAutoRefresh(){
   setupAutoRefresh();
   await loadAll();
 })();
+
 </script>
 </body>
 </html>
