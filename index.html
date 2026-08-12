@@ -698,6 +698,10 @@ const RUBRO_SWITCH = {
   'GASTOS DE OPERACIÓN':'GASTOS DE OPERACIÓN', 'GASTOS DE OPERACION':'GASTOS DE OPERACIÓN',
   'GASTOS FINANCIEROS':'GASTOS FINANCIEROS'
 };
+// subtítulos internos dentro de "Gastos de Operación" (Recepción, Administración, Ventas, Dirección) —
+// no son rubros propios ni partidas: se ignoran para que no aparezcan como líneas de $0
+const SUBHEADER_SKIP = new Set(['RECEPCION','ADMINISTRACION','VENTAS','DIRECCION','SERVICIOS']);
+function isErrorCell(v){ return /^#(ERROR|REF|DIV|N\/A|VALUE|NAME|NULL)/i.test(String(v||'').trim()); }
 const SUMMARY_ROWS = {
   'TOTAL DE INGRESOS': {key:'ingreso', rubro:'INGRESOS'},
   'COSTO DIRECTO TOTAL': {key:'costoDirecto', rubro:'COSTO DIRECTO'},
@@ -752,25 +756,30 @@ function parsePptoSheet(rows){
   const months = detectPptoMonths(rows, headerRowIdx);
   let currentRubro = 'INGRESOS';
   const partidas = [], summaries = [];
+  let errorCount = 0;
   for (let r=headerRowIdx+1; r<rows.length; r++){
     const row = rows[r] || [];
     const conceptRaw = (row[2]||'').trim(); // columna C
     if (!conceptRaw) continue;
     const norm = normLabel(conceptRaw);
     if (RUBRO_SWITCH[norm]){ currentRubro = RUBRO_SWITCH[norm]; continue; }
-    const ppto = {}, real = {}, unit = {};
+    if (SUBHEADER_SKIP.has(norm)) continue;
+    const ppto = {}, real = {}, unit = {}, realErr = {}, pptoErr = {};
     for (const m of months){
-      ppto[m.name] = cleanNum(row[m.pptoCol]);
-      real[m.name] = m.realCol!=null ? cleanNum(row[m.realCol]) : 0;
+      const pRaw = row[m.pptoCol], rRaw = m.realCol!=null ? row[m.realCol] : null;
+      ppto[m.name] = cleanNum(pRaw);
+      real[m.name] = rRaw!=null ? cleanNum(rRaw) : 0;
       unit[m.name] = m.unitCol!=null ? cleanNum(row[m.unitCol]) : 0;
+      if (isErrorCell(pRaw)){ pptoErr[m.name] = true; errorCount++; }
+      if (isErrorCell(rRaw)){ realErr[m.name] = true; errorCount++; }
     }
     if (SUMMARY_ROWS[norm]){
-      summaries.push({key:SUMMARY_ROWS[norm].key, rubro:SUMMARY_ROWS[norm].rubro, label:conceptRaw, ppto, real});
+      summaries.push({key:SUMMARY_ROWS[norm].key, rubro:SUMMARY_ROWS[norm].rubro, label:conceptRaw, ppto, real, realErr, pptoErr});
       continue;
     }
-    partidas.push({rubro: currentRubro, concepto: conceptRaw, ppto, real, unit});
+    partidas.push({rubro: currentRubro, concepto: conceptRaw, ppto, real, unit, realErr, pptoErr});
   }
-  return {months, partidas, summaries, headerRowIdx};
+  return {months, partidas, summaries, headerRowIdx, errorCount};
 }
 async function loadPPTO(){
   try{
@@ -785,8 +794,10 @@ async function loadPPTO(){
     const diag = document.getElementById('erDiag');
     if (diag){
       const d = PPTO.dunas, o = PPTO.ovalo;
-      diag.textContent = `Diagnóstico — Torre: fila encabezado ${d.headerRowIdx+1}, ${d.months.length} meses detectados, ${d.partidas.length} partidas · `+
-        `Óvalo: fila encabezado ${o.headerRowIdx+1}, ${o.months.length} meses, ${o.partidas.length} partidas`;
+      const totalErr = (d.errorCount||0) + (o.errorCount||0);
+      diag.innerHTML = `Diagnóstico — Torre: fila encabezado ${d.headerRowIdx+1}, ${d.months.length} meses, ${d.partidas.length} partidas · `+
+        `Óvalo: fila encabezado ${o.headerRowIdx+1}, ${o.months.length} meses, ${o.partidas.length} partidas` +
+        (totalErr>0 ? ` · <span style="color:#e74c3c;font-weight:700;">⚠ ${totalErr} celdas con error de fórmula (#ERROR!/#REF!) detectadas en el Google Sheet — revisa la nota debajo de los KPIs.</span>` : '');
     }
     document.getElementById('erUpdateChip').textContent = 'Última actualización: ' + new Date().toLocaleTimeString('es-MX');
     renderResultados();
@@ -809,6 +820,14 @@ function sumSummary(summaries, key, mesSel, field){
   if (mesSel === 'ANUAL') return Object.values(s[field]).reduce((a,b)=>a+b,0);
   return s[field][mesSel] || 0;
 }
+function hasErrorSummary(summaries, key, mesSel, field){
+  const s = summaries.find(x=>x.key===key);
+  if (!s) return false;
+  const errObj = field==='real' ? s.realErr : s.pptoErr;
+  if (!errObj) return false;
+  if (mesSel === 'ANUAL') return Object.keys(errObj).length > 0;
+  return !!errObj[mesSel];
+}
 function sumPartida(p, mesSel, field){
   if (mesSel === 'ANUAL') return Object.values(p[field]).reduce((a,b)=>a+b,0);
   return p[field][mesSel] || 0;
@@ -820,6 +839,9 @@ function getDataset(prop){
 }
 function combinedSummaryVal(prop, key, mesSel, field){
   return getDataset(prop).reduce((acc,ds)=>acc + sumSummary(ds.summaries, key, mesSel, field), 0);
+}
+function combinedHasError(prop, key, mesSel, field){
+  return getDataset(prop).some(ds => hasErrorSummary(ds.summaries, key, mesSel, field));
 }
 function unitForPartida(p, mesSel){
   if (mesSel === 'ANUAL'){
@@ -857,11 +879,31 @@ function renderResultados(){
   const costo = combinedSummaryVal(prop,'costoDirecto',mesSel,field) + combinedSummaryVal(prop,'costoIndirecto',mesSel,field);
   const gasto = combinedSummaryVal(prop,'gastoOperacion',mesSel,field) + combinedSummaryVal(prop,'gastoFinanciero',mesSel,field) + combinedSummaryVal(prop,'gastoCierre',mesSel,field);
   const utilidad = ingreso - costo - gasto;
+  const errIngreso = combinedHasError(prop,'ingreso',mesSel,field);
+  const errCosto = combinedHasError(prop,'costoDirecto',mesSel,field) || combinedHasError(prop,'costoIndirecto',mesSel,field);
+  const errGasto = combinedHasError(prop,'gastoOperacion',mesSel,field) || combinedHasError(prop,'gastoFinanciero',mesSel,field);
+  const anyErr = errIngreso || errCosto || errGasto;
 
-  document.getElementById('erVenta').textContent = fmtMoney(ingreso);
-  document.getElementById('erCosto').textContent = fmtMoney(costo);
-  document.getElementById('erGasto').textContent = fmtMoney(gasto);
-  document.getElementById('erUtilidad').textContent = fmtMoney(utilidad);
+  document.getElementById('erVenta').textContent = fmtMoney(ingreso) + (errIngreso?' ⚠':'');
+  document.getElementById('erCosto').textContent = fmtMoney(costo) + (errCosto?' ⚠':'');
+  document.getElementById('erGasto').textContent = fmtMoney(gasto) + (errGasto?' ⚠':'');
+  document.getElementById('erUtilidad').textContent = fmtMoney(utilidad) + (anyErr?' ⚠':'');
+
+  let erErrNote = document.getElementById('erErrNote');
+  if (!erErrNote){
+    erErrNote = document.createElement('div');
+    erErrNote.id = 'erErrNote';
+    erErrNote.style.cssText = 'font-size:11px;color:#8a2a2a;background:#fff5f5;border:1px solid #f3c6c6;border-radius:8px;padding:8px 12px;margin-bottom:12px;';
+    document.querySelector('#resultadosSection .krow').insertAdjacentElement('afterend', erErrNote);
+  }
+  if (anyErr){
+    erErrNote.style.display = '';
+    erErrNote.innerHTML = `⚠ Uno o más totales de <strong>${prop==='dunas'?'Torre Dunas':prop==='ovalo'?'Óvalo':'Torre Dunas / Óvalo'}</strong> para <strong>${mesSel==='ANUAL'?'el acumulado anual':mesSel.charAt(0)+mesSel.slice(1).toLowerCase()}</strong>
+      contienen celdas con error de fórmula (<code>#ERROR!</code> / <code>#REF!</code>) en el Google Sheet — por eso el número mostrado no incluye esa parte y puede estar incompleto.
+      El origen parece estar en las filas de <strong>NOMINA DIVISION CUARTOS</strong> / <strong>NOMINA OPERATIVA</strong>, que arrastran el error a los totales de Costo y Gasto. Corrígelo en el Sheet y se reflejará solo en el próximo refresco.`;
+  } else {
+    erErrNote.style.display = 'none';
+  }
 
   if (vista === 'ambos'){
     const ingresoP = combinedSummaryVal(prop,'ingreso',mesSel,'ppto');
@@ -878,18 +920,18 @@ function renderResultados(){
 
   // Concentrado por rubro
   const rubroRows = RUBRO_ORDER.map(rb=>{
-    let ppto=0, real=0;
-    if (rb==='INGRESOS'){ ppto=combinedSummaryVal(prop,'ingreso',mesSel,'ppto'); real=combinedSummaryVal(prop,'ingreso',mesSel,'real'); }
-    if (rb==='COSTO DIRECTO'){ ppto=combinedSummaryVal(prop,'costoDirecto',mesSel,'ppto'); real=combinedSummaryVal(prop,'costoDirecto',mesSel,'real'); }
-    if (rb==='COSTO INDIRECTO'){ ppto=combinedSummaryVal(prop,'costoIndirecto',mesSel,'ppto'); real=combinedSummaryVal(prop,'costoIndirecto',mesSel,'real'); }
-    if (rb==='GASTOS DE OPERACIÓN'){ ppto=combinedSummaryVal(prop,'gastoOperacion',mesSel,'ppto'); real=combinedSummaryVal(prop,'gastoOperacion',mesSel,'real'); }
-    if (rb==='GASTOS FINANCIEROS'){ ppto=combinedSummaryVal(prop,'gastoFinanciero',mesSel,'ppto'); real=combinedSummaryVal(prop,'gastoFinanciero',mesSel,'real'); }
-    return {rubro:rb, ppto, real};
+    let ppto=0, real=0, err=false;
+    if (rb==='INGRESOS'){ ppto=combinedSummaryVal(prop,'ingreso',mesSel,'ppto'); real=combinedSummaryVal(prop,'ingreso',mesSel,'real'); err=combinedHasError(prop,'ingreso',mesSel,'real'); }
+    if (rb==='COSTO DIRECTO'){ ppto=combinedSummaryVal(prop,'costoDirecto',mesSel,'ppto'); real=combinedSummaryVal(prop,'costoDirecto',mesSel,'real'); err=combinedHasError(prop,'costoDirecto',mesSel,'real'); }
+    if (rb==='COSTO INDIRECTO'){ ppto=combinedSummaryVal(prop,'costoIndirecto',mesSel,'ppto'); real=combinedSummaryVal(prop,'costoIndirecto',mesSel,'real'); err=combinedHasError(prop,'costoIndirecto',mesSel,'real'); }
+    if (rb==='GASTOS DE OPERACIÓN'){ ppto=combinedSummaryVal(prop,'gastoOperacion',mesSel,'ppto'); real=combinedSummaryVal(prop,'gastoOperacion',mesSel,'real'); err=combinedHasError(prop,'gastoOperacion',mesSel,'real'); }
+    if (rb==='GASTOS FINANCIEROS'){ ppto=combinedSummaryVal(prop,'gastoFinanciero',mesSel,'ppto'); real=combinedSummaryVal(prop,'gastoFinanciero',mesSel,'real'); err=combinedHasError(prop,'gastoFinanciero',mesSel,'real'); }
+    return {rubro:rb, ppto, real, err};
   });
   document.getElementById('erRubroBody').innerHTML = rubroRows.map(r=>{
     const varr = r.real - r.ppto;
     const pct = r.ppto ? (r.real/r.ppto*100) : 0;
-    return `<tr><td>${r.rubro}</td><td>${fmtMoney(r.ppto)}</td><td class="money">${fmtMoney(r.real)}</td>
+    return `<tr><td>${r.rubro}</td><td>${fmtMoney(r.ppto)}</td><td class="money">${fmtMoney(r.real)}${r.err?' <span style="color:#e74c3c;" title="Hay celdas #ERROR! en el Sheet para este rubro">⚠</span>':''}</td>
       <td class="${varr>=0?'money':''}" style="${varr<0?'color:#e74c3c;font-weight:700;':''}">${fmtMoney(varr)}</td><td>${pct.toFixed(0)}%</td></tr>`;
   }).join('');
 
