@@ -221,7 +221,7 @@ tbody tr:hover{background:var(--sandbg);}
         <canvas id="chartRubros"></canvas>
       </div>
       <div class="cc">
-        <div class="cch"><div><div class="cct">Tendencia mensual</div><div class="ccs">Venta, Costo, Gasto y Utilidad — todo 2026</div></div></div>
+        <div class="cch"><div><div class="cct" id="chartTendenciaTitle">Tendencia mensual</div><div class="ccs" id="chartTendenciaSub">Venta, Costo, Gasto y Utilidad — todo 2026</div></div></div>
         <canvas id="chartTendencia"></canvas>
       </div>
     </div>
@@ -731,21 +731,28 @@ function findPptoHeaderRow(rows){
 }
 function detectPptoMonths(rows, headerRowIdx){
   const header = rows[headerRowIdx] || [];
+  const subHeader = rows[headerRowIdx+1] || []; // fila con rangos de fechas "1 AL 04 ENE"
   const months = [];
   for (let c=0;c<header.length;c++){
     const m = String(header[c]||'').trim().match(/^PTTO\s+(.+)$/i);
     if (m){
       const name = normLabel(m[1]);
       let realCol = null;
-      for (let c2=c+1; c2<Math.min(c+14, header.length); c2++){
-        const t = normLabel(header[c2]);
-        if (/^PTTO\s+/i.test(String(header[c2]||'').trim())) break;
+      const weeks = [];
+      for (let c2=c+1; c2<Math.min(c+16, header.length); c2++){
+        const raw = String(header[c2]||'').trim();
+        const t = normLabel(raw);
+        if (/^PTTO\s+/i.test(raw)) break;
         if (t === 'TOTALES'){ realCol = c2; break; }
+        if (/^SEM\b/i.test(raw)){
+          const label = (subHeader[c2] && String(subHeader[c2]).trim()) || raw;
+          weeks.push({label, col:c2});
+        }
       }
       // la columna "P.Unitario" normalmente va justo a la izquierda de "PTTO <mes>"
       let unitCol = null;
       if (c>0 && /UNITARIO/i.test(normLabel(header[c-1]))) unitCol = c-1;
-      months.push({name, pptoCol:c, realCol, unitCol});
+      months.push({name, pptoCol:c, realCol, unitCol, weeks});
     }
   }
   months.sort((a,b)=>MESES.indexOf(a.name)-MESES.indexOf(b.name));
@@ -764,7 +771,7 @@ function parsePptoSheet(rows){
     const norm = normLabel(conceptRaw);
     if (RUBRO_SWITCH[norm]){ currentRubro = RUBRO_SWITCH[norm]; continue; }
     if (SUBHEADER_SKIP.has(norm)) continue;
-    const ppto = {}, real = {}, unit = {}, realErr = {}, pptoErr = {};
+    const ppto = {}, real = {}, unit = {}, realErr = {}, pptoErr = {}, weekly = {};
     for (const m of months){
       const pRaw = row[m.pptoCol], rRaw = m.realCol!=null ? row[m.realCol] : null;
       ppto[m.name] = cleanNum(pRaw);
@@ -772,14 +779,19 @@ function parsePptoSheet(rows){
       unit[m.name] = m.unitCol!=null ? cleanNum(row[m.unitCol]) : 0;
       if (isErrorCell(pRaw)){ pptoErr[m.name] = true; errorCount++; }
       if (isErrorCell(rRaw)){ realErr[m.name] = true; errorCount++; }
+      weekly[m.name] = m.weeks.map(w => ({ label:w.label, value: cleanNum(row[w.col]), error: isErrorCell(row[w.col]) }));
     }
     if (SUMMARY_ROWS[norm]){
-      summaries.push({key:SUMMARY_ROWS[norm].key, rubro:SUMMARY_ROWS[norm].rubro, label:conceptRaw, ppto, real, realErr, pptoErr});
+      summaries.push({key:SUMMARY_ROWS[norm].key, rubro:SUMMARY_ROWS[norm].rubro, label:conceptRaw, ppto, real, realErr, pptoErr, weekly});
       continue;
     }
-    partidas.push({rubro: currentRubro, concepto: conceptRaw, ppto, real, unit, realErr, pptoErr});
+    partidas.push({rubro: currentRubro, concepto: conceptRaw, ppto, real, unit, realErr, pptoErr, weekly});
   }
-  return {months, partidas, summaries, headerRowIdx, errorCount};
+  // meses sin columna "TOTALES" detectada (problema estructural) y meses con ingreso real en $0 (posible falta de captura)
+  const ingresoRow = summaries.find(s=>s.key==='ingreso');
+  const monthsNoRealCol = months.filter(m=>m.realCol==null).map(m=>m.name);
+  const monthsNoData = ingresoRow ? months.filter(m=>!monthsNoRealCol.includes(m.name) && (ingresoRow.real[m.name]||0)===0).map(m=>m.name) : [];
+  return {months, partidas, summaries, headerRowIdx, errorCount, monthsNoRealCol, monthsNoData};
 }
 async function loadPPTO(){
   try{
@@ -795,9 +807,15 @@ async function loadPPTO(){
     if (diag){
       const d = PPTO.dunas, o = PPTO.ovalo;
       const totalErr = (d.errorCount||0) + (o.errorCount||0);
+      const mesName = s => s.charAt(0)+s.slice(1).toLowerCase();
+      let extra = '';
+      if (totalErr>0) extra += ` · <span style="color:#e74c3c;font-weight:700;">⚠ ${totalErr} celdas con error de fórmula (#ERROR!/#REF!) — ver nota debajo de los KPIs.</span>`;
+      const noCol = [...new Set([...d.monthsNoRealCol, ...o.monthsNoRealCol])];
+      if (noCol.length) extra += ` · <span style="color:#e74c3c;font-weight:700;">⚠ No se encontró columna "TOTALES" para: ${noCol.map(mesName).join(', ')} (revisa que ese encabezado exista igual en el Sheet).</span>`;
+      const noData = [...new Set([...d.monthsNoData, ...o.monthsNoData])];
+      if (noData.length) extra += ` · <span style="color:#b8860b;">ℹ Sin captura de "Real" (todo en $0) en: ${noData.map(mesName).join(', ')}.</span>`;
       diag.innerHTML = `Diagnóstico — Torre: fila encabezado ${d.headerRowIdx+1}, ${d.months.length} meses, ${d.partidas.length} partidas · `+
-        `Óvalo: fila encabezado ${o.headerRowIdx+1}, ${o.months.length} meses, ${o.partidas.length} partidas` +
-        (totalErr>0 ? ` · <span style="color:#e74c3c;font-weight:700;">⚠ ${totalErr} celdas con error de fórmula (#ERROR!/#REF!) detectadas en el Google Sheet — revisa la nota debajo de los KPIs.</span>` : '');
+        `Óvalo: fila encabezado ${o.headerRowIdx+1}, ${o.months.length} meses, ${o.partidas.length} partidas` + extra;
     }
     document.getElementById('erUpdateChip').textContent = 'Última actualización: ' + new Date().toLocaleTimeString('es-MX');
     renderResultados();
@@ -842,6 +860,28 @@ function combinedSummaryVal(prop, key, mesSel, field){
 }
 function combinedHasError(prop, key, mesSel, field){
   return getDataset(prop).some(ds => hasErrorSummary(ds.summaries, key, mesSel, field));
+}
+function combinedWeeklySeries(prop, key, mesSel){
+  const datasets = getDataset(prop);
+  let labels = null, values = null;
+  for (const ds of datasets){
+    const s = ds.summaries.find(x=>x.key===key);
+    const wk = s && s.weekly ? s.weekly[mesSel] : null;
+    if (!wk || !wk.length) continue;
+    if (!labels){ labels = wk.map(w=>w.label); values = wk.map(()=>0); }
+    wk.forEach((w,i)=>{ if (values[i]!==undefined) values[i] += w.value; });
+  }
+  return { labels: labels||[], values: values||[] };
+}
+function combinedWeeklyMulti(prop, keys, mesSel){
+  let labels = null, values = null;
+  for (const key of keys){
+    const r = combinedWeeklySeries(prop, key, mesSel);
+    if (!r.labels.length) continue;
+    if (!labels){ labels = r.labels; values = r.values.slice(); }
+    else { r.values.forEach((v,i)=>{ if (values[i]!==undefined) values[i] += v; }); }
+  }
+  return { labels: labels||[], values: values||[] };
 }
 function unitForPartida(p, mesSel){
   if (mesSel === 'ANUAL'){
@@ -945,25 +985,50 @@ function renderResultados(){
     options:{indexAxis:'y', responsive:true, plugins:{legend:{position:'bottom',labels:{boxWidth:10,font:{size:10}}}}, scales:{x:{ticks:{callback:v=>'$'+(v/1000).toFixed(0)+'k'}}}}
   });
 
-  // Tendencia mensual (todo el año, campo seleccionado)
-  const months = (PPTO.dunas && PPTO.dunas.months.map(m=>m.name)) || MESES;
-  const trendField = vista === 'ppto' ? 'ppto' : 'real';
-  const serie = (key) => months.map(mn => combinedSummaryVal(prop, key, mn, trendField));
-  const ventaSerie = serie('ingreso');
-  const costoSerie = months.map(mn => combinedSummaryVal(prop,'costoDirecto',mn,trendField)+combinedSummaryVal(prop,'costoIndirecto',mn,trendField));
-  const gastoSerie = months.map(mn => combinedSummaryVal(prop,'gastoOperacion',mn,trendField)+combinedSummaryVal(prop,'gastoFinanciero',mn,trendField)+combinedSummaryVal(prop,'gastoCierre',mn,trendField));
-  const utilSerie = months.map((mn,i) => ventaSerie[i]-costoSerie[i]-gastoSerie[i]);
+  // Tendencia: mensual (ANUAL) o desglose semanal (mes específico), según filtro
   destroyChart('tendencia');
-  charts.tendencia = new Chart(document.getElementById('chartTendencia'), {
-    type:'line',
-    data:{ labels: months.map(m=>m.charAt(0)+m.slice(1).toLowerCase().slice(0,2)), datasets:[
-      {label:'Venta', data:ventaSerie, borderColor:'#2ecc71', tension:.3},
-      {label:'Costo', data:costoSerie, borderColor:'#e74c3c', tension:.3},
-      {label:'Gasto', data:gastoSerie, borderColor:'#f59e0b', tension:.3},
-      {label:'Utilidad', data:utilSerie, borderColor:'#8a5a2e', backgroundColor:'rgba(138,90,46,.12)', fill:true, tension:.3}
-    ]},
-    options:{responsive:true, plugins:{legend:{position:'bottom',labels:{boxWidth:10,font:{size:9}}}}, scales:{y:{ticks:{callback:v=>'$'+(v/1000).toFixed(0)+'k'}}}}
-  });
+  const titleEl = document.getElementById('chartTendenciaTitle'), subEl = document.getElementById('chartTendenciaSub');
+  if (mesSel === 'ANUAL'){
+    titleEl.textContent = 'Tendencia mensual';
+    subEl.textContent = 'Venta, Costo, Gasto y Utilidad — todo 2026';
+    const months = (PPTO.dunas && PPTO.dunas.months.map(m=>m.name)) || MESES;
+    const trendField = vista === 'ppto' ? 'ppto' : 'real';
+    const serie = (key) => months.map(mn => combinedSummaryVal(prop, key, mn, trendField));
+    const ventaSerie = serie('ingreso');
+    const costoSerie = months.map(mn => combinedSummaryVal(prop,'costoDirecto',mn,trendField)+combinedSummaryVal(prop,'costoIndirecto',mn,trendField));
+    const gastoSerie = months.map(mn => combinedSummaryVal(prop,'gastoOperacion',mn,trendField)+combinedSummaryVal(prop,'gastoFinanciero',mn,trendField)+combinedSummaryVal(prop,'gastoCierre',mn,trendField));
+    const utilSerie = months.map((mn,i) => ventaSerie[i]-costoSerie[i]-gastoSerie[i]);
+    charts.tendencia = new Chart(document.getElementById('chartTendencia'), {
+      type:'line',
+      data:{ labels: months.map(m=>m.charAt(0)+m.slice(1).toLowerCase().slice(0,2)), datasets:[
+        {label:'Venta', data:ventaSerie, borderColor:'#2ecc71', tension:.3},
+        {label:'Costo', data:costoSerie, borderColor:'#e74c3c', tension:.3},
+        {label:'Gasto', data:gastoSerie, borderColor:'#f59e0b', tension:.3},
+        {label:'Utilidad', data:utilSerie, borderColor:'#8a5a2e', backgroundColor:'rgba(138,90,46,.12)', fill:true, tension:.3}
+      ]},
+      options:{responsive:true, plugins:{legend:{position:'bottom',labels:{boxWidth:10,font:{size:9}}}}, scales:{y:{ticks:{callback:v=>'$'+(v/1000).toFixed(0)+'k'}}}}
+    });
+  } else {
+    titleEl.textContent = 'Desglose semanal — ' + (mesSel.charAt(0)+mesSel.slice(1).toLowerCase());
+    subEl.textContent = 'Real capturado por semana (así viene registrado en el Excel)';
+    const ventaW = combinedWeeklyMulti(prop, ['ingreso'], mesSel);
+    const costoW = combinedWeeklyMulti(prop, ['costoDirecto','costoIndirecto'], mesSel);
+    const gastoW = combinedWeeklyMulti(prop, ['gastoOperacion','gastoFinanciero','gastoCierre'], mesSel);
+    const utilW = ventaW.values.map((v,i)=> v - (costoW.values[i]||0) - (gastoW.values[i]||0));
+    if (!ventaW.labels.length){
+      subEl.textContent = 'No se detectaron columnas semanales (SEM) para este mes en el Sheet';
+    }
+    charts.tendencia = new Chart(document.getElementById('chartTendencia'), {
+      type:'bar',
+      data:{ labels: ventaW.labels, datasets:[
+        {label:'Venta', data:ventaW.values, backgroundColor:'#2ecc71'},
+        {label:'Costo', data:costoW.values, backgroundColor:'#e74c3c'},
+        {label:'Gasto', data:gastoW.values, backgroundColor:'#f59e0b'},
+        {label:'Utilidad', data:utilW, backgroundColor:'#8a5a2e'}
+      ]},
+      options:{responsive:true, plugins:{legend:{position:'bottom',labels:{boxWidth:10,font:{size:9}}}}, scales:{y:{ticks:{callback:v=>'$'+(v/1000).toFixed(0)+'k'}}, x:{ticks:{font:{size:9}}}}}
+    });
+  }
 
   renderPartidas(prop, mesSel);
 }
