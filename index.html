@@ -131,6 +131,11 @@ tbody tr:hover{background:var(--sandbg);}
     <label>Desde</label><input type="date" id="fDesde">
     <label>Hasta</label><input type="date" id="fHasta">
     <div class="fsep"></div>
+    <button class="btn bo" id="btnRangeHoy" style="padding:5px 10px;font-size:10.5px;">Hoy</button>
+    <button class="btn bo" id="btnRange7" style="padding:5px 10px;font-size:10.5px;">Últimos 7 días</button>
+    <button class="btn bo" id="btnRangeMes" style="padding:5px 10px;font-size:10.5px;">Este mes</button>
+    <button class="btn bo" id="btnRangeAnio" style="padding:5px 10px;font-size:10.5px;">Todo 2026</button>
+    <div class="fsep"></div>
     <label>Comparar contra</label>
     <select id="fCompareYear"><option value="2025">2025</option><option value="none">Sin comparativa</option></select>
     <div class="fsep"></div>
@@ -201,6 +206,7 @@ tbody tr:hover{background:var(--sandbg);}
       <a id="erSheetLink" href="#" target="_blank" class="chip" style="text-decoration:none;">🔗 Abrir Google Sheet en línea</a>
       <span class="chip" id="erUpdateChip" style="margin-left:auto;background:#f0fdf4;color:#166534;border-color:#c8ecd4;">—</span>
     </div>
+    <div id="erDiag" style="font-size:10px;color:var(--ink2);padding:2px 4px 8px;"></div>
 
     <div class="krow" style="grid-template-columns:repeat(4,1fr);">
       <div class="kpi k1"><div class="kv" id="erVenta">—</div><div class="kl">Venta (Ingreso)</div><div class="ksub" id="erVentaSub"></div></div>
@@ -241,9 +247,9 @@ tbody tr:hover{background:var(--sandbg);}
       <div class="ts">
         <table>
           <thead><tr>
-            <th data-ek="rubro">Rubro</th><th data-ek="concepto">Partida</th><th data-ek="ppto">Presupuesto</th><th data-ek="real">Real</th><th data-ek="var">Variación</th><th data-ek="pct">% Cumpl.</th>
+            <th data-ek="rubro">Rubro</th><th data-ek="concepto">Partida</th><th data-ek="unit">P. Unitario</th><th data-ek="ppto">Presupuesto</th><th data-ek="real">Real</th><th data-ek="var">Variación</th><th data-ek="pct">% Cumpl.</th>
           </tr></thead>
-          <tbody id="erPartidasBody"><tr><td colspan="6" class="em">Cargando…</td></tr></tbody>
+          <tbody id="erPartidasBody"><tr><td colspan="7" class="em">Cargando…</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -538,12 +544,16 @@ function weeklyAgg(records){
 
 /* ================= FILTERS INIT ================= */
 function initFilters(){
-  const all2026 = [...RAW.torre2026, ...RAW.ovalo2026].map(r=>r.fechaStr).sort();
+  const combined = [...RAW.torre2026, ...RAW.ovalo2026];
+  const all2026 = combined.map(r=>r.fechaStr).sort();
   if (all2026.length){
     const minD = all2026[0], maxD = all2026[all2026.length-1];
     const fDesde = document.getElementById('fDesde'), fHasta = document.getElementById('fHasta');
-    if (!fDesde.value) fDesde.value = minD;
-    if (!fHasta.value) fHasta.value = maxD;
+    // último día con datos reales (evita que fechas futuras precargadas en vacío corran el promedio)
+    const withData = combined.filter(r => r.hv > 0 || r.totalGeneral > 0).map(r=>r.fechaStr).sort();
+    const lastRealDay = withData.length ? withData[withData.length-1] : maxD;
+    if (!fDesde.value) fDesde.value = lastRealDay;
+    if (!fHasta.value) fHasta.value = lastRealDay;
     fDesde.min = minD; fDesde.max = maxD; fHasta.min = minD; fHasta.max = maxD;
   }
 }
@@ -580,7 +590,7 @@ function renderAll(){
     const totalGen25 = data25.reduce((s,r)=>s+r.totalGeneral,0);
     const hv25 = data25.reduce((s,r)=>s+r.hv,0);
     const ventaNeta25 = data25.reduce((s,r)=>s+r.ventaNeta,0);
-    setDelta('kVentaPromSub', totalGen, data25.length? totalGen25/(data25.length||1) : null);
+    setDelta('kVentaPromSub', ventaProm, data25.length? totalGen25/(data25.length||1) : null);
     setDelta('kVentaNetaSub', ventaNeta, ventaNeta25);
     setDelta('kHVSub', hv, hv25);
   } else {
@@ -728,7 +738,10 @@ function detectPptoMonths(rows, headerRowIdx){
         if (/^PTTO\s+/i.test(String(header[c2]||'').trim())) break;
         if (t === 'TOTALES'){ realCol = c2; break; }
       }
-      months.push({name, pptoCol:c, realCol});
+      // la columna "P.Unitario" normalmente va justo a la izquierda de "PTTO <mes>"
+      let unitCol = null;
+      if (c>0 && /UNITARIO/i.test(normLabel(header[c-1]))) unitCol = c-1;
+      months.push({name, pptoCol:c, realCol, unitCol});
     }
   }
   months.sort((a,b)=>MESES.indexOf(a.name)-MESES.indexOf(b.name));
@@ -745,18 +758,19 @@ function parsePptoSheet(rows){
     if (!conceptRaw) continue;
     const norm = normLabel(conceptRaw);
     if (RUBRO_SWITCH[norm]){ currentRubro = RUBRO_SWITCH[norm]; continue; }
-    const ppto = {}, real = {};
+    const ppto = {}, real = {}, unit = {};
     for (const m of months){
       ppto[m.name] = cleanNum(row[m.pptoCol]);
       real[m.name] = m.realCol!=null ? cleanNum(row[m.realCol]) : 0;
+      unit[m.name] = m.unitCol!=null ? cleanNum(row[m.unitCol]) : 0;
     }
     if (SUMMARY_ROWS[norm]){
       summaries.push({key:SUMMARY_ROWS[norm].key, rubro:SUMMARY_ROWS[norm].rubro, label:conceptRaw, ppto, real});
       continue;
     }
-    partidas.push({rubro: currentRubro, concepto: conceptRaw, ppto, real});
+    partidas.push({rubro: currentRubro, concepto: conceptRaw, ppto, real, unit});
   }
-  return {months, partidas, summaries};
+  return {months, partidas, summaries, headerRowIdx};
 }
 async function loadPPTO(){
   try{
@@ -768,6 +782,12 @@ async function loadPPTO(){
     PPTO.ovalo = parsePptoSheet(oRows);
     PPTO.loaded = true;
     populateMesSelect();
+    const diag = document.getElementById('erDiag');
+    if (diag){
+      const d = PPTO.dunas, o = PPTO.ovalo;
+      diag.textContent = `Diagnóstico — Torre: fila encabezado ${d.headerRowIdx+1}, ${d.months.length} meses detectados, ${d.partidas.length} partidas · `+
+        `Óvalo: fila encabezado ${o.headerRowIdx+1}, ${o.months.length} meses, ${o.partidas.length} partidas`;
+    }
     document.getElementById('erUpdateChip').textContent = 'Última actualización: ' + new Date().toLocaleTimeString('es-MX');
     renderResultados();
   }catch(err){
@@ -778,9 +798,10 @@ async function loadPPTO(){
 }
 function populateMesSelect(){
   const sel = document.getElementById('erMes');
-  if (sel.options.length) return;
+  const prevVal = sel.value;
   const months = (PPTO.dunas && PPTO.dunas.months) || [];
   sel.innerHTML = '<option value="ANUAL">Acumulado anual</option>' + months.map(m=>`<option value="${m.name}">${m.name.charAt(0)+m.name.slice(1).toLowerCase()}</option>`).join('');
+  if (prevVal && [...sel.options].some(o=>o.value===prevVal)) sel.value = prevVal;
 }
 function sumSummary(summaries, key, mesSel, field){
   const s = summaries.find(x=>x.key===key);
@@ -800,11 +821,18 @@ function getDataset(prop){
 function combinedSummaryVal(prop, key, mesSel, field){
   return getDataset(prop).reduce((acc,ds)=>acc + sumSummary(ds.summaries, key, mesSel, field), 0);
 }
+function unitForPartida(p, mesSel){
+  if (mesSel === 'ANUAL'){
+    const vals = Object.values(p.unit||{}).filter(v=>v>0);
+    return vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : 0;
+  }
+  return (p.unit && p.unit[mesSel]) || 0;
+}
 function combinedPartidas(prop, mesSel){
   const out = [];
   for (const ds of getDataset(prop)){
     for (const p of ds.partidas){
-      out.push({ rubro:p.rubro, concepto:p.concepto, ppto: sumPartida(p, mesSel, 'ppto'), real: sumPartida(p, mesSel, 'real') });
+      out.push({ rubro:p.rubro, concepto:p.concepto, ppto: sumPartida(p, mesSel, 'ppto'), real: sumPartida(p, mesSel, 'real'), unit: unitForPartida(p, mesSel) });
     }
   }
   return out;
@@ -813,9 +841,9 @@ function pctDelta(cur, base){ if (!base) return null; return ((cur-base)/base)*1
 function setERDelta(id, cur, base){
   const el = document.getElementById(id);
   const d = pctDelta(cur, base);
-  if (d === null){ el.textContent = ''; return; }
+  if (d === null){ el.textContent = `Presupuesto: ${fmtMoney(base)}`; return; }
   el.className = 'ksub ' + (d>=0?'up':'down');
-  el.textContent = (d>=0?'▲ ':'▼ ') + Math.abs(d).toFixed(1) + '% vs presupuesto';
+  el.textContent = `Presupuesto: ${fmtMoney(base)} · ` + (d>=0?'▲ ':'▼ ') + Math.abs(d).toFixed(1) + '%';
 }
 function renderResultados(){
   if (!PPTO.loaded) return;
@@ -911,9 +939,10 @@ function renderPartidas(prop, mesSel){
   rows = rows.map(r=>({...r, var: r.real-r.ppto, pct: r.ppto? (r.real/r.ppto*100) : 0}));
   rows.sort((a,b)=>{ const d = a[erSort.k] > b[erSort.k] ? 1 : a[erSort.k] < b[erSort.k] ? -1 : 0; return d*erSort.dir; });
   const tb = document.getElementById('erPartidasBody');
-  if (!rows.length){ tb.innerHTML = '<tr><td colspan="6" class="em">Sin partidas para este filtro</td></tr>'; return; }
+  const showUnit = prop !== 'combinado';
+  if (!rows.length){ tb.innerHTML = '<tr><td colspan="7" class="em">Sin partidas para este filtro</td></tr>'; return; }
   tb.innerHTML = rows.map(r=>`<tr>
-    <td>${r.rubro}</td><td>${r.concepto}</td><td>${fmtMoney(r.ppto)}</td><td class="money">${fmtMoney(r.real)}</td>
+    <td>${r.rubro}</td><td>${r.concepto}</td><td>${showUnit && r.unit ? fmtMoney2(r.unit) : '—'}</td><td>${fmtMoney(r.ppto)}</td><td class="money">${fmtMoney(r.real)}</td>
     <td style="${r.var<0?'color:#e74c3c;font-weight:700;':''}">${fmtMoney(r.var)}</td><td>${r.pct.toFixed(0)}%</td>
   </tr>`).join('');
 }
@@ -951,6 +980,33 @@ document.getElementById('propTabs').addEventListener('click', (e)=>{
 });
 document.getElementById('fDesde').addEventListener('change', renderAll);
 document.getElementById('fHasta').addEventListener('change', renderAll);
+function lastRealDay(){
+  const combined = [...(RAW.torre2026||[]), ...(RAW.ovalo2026||[])];
+  const withData = combined.filter(r => r.hv > 0 || r.totalGeneral > 0).map(r=>r.fechaStr).sort();
+  return withData.length ? withData[withData.length-1] : null;
+}
+document.getElementById('btnRangeHoy').addEventListener('click', ()=>{
+  const d = lastRealDay(); if (!d) return;
+  document.getElementById('fDesde').value = d; document.getElementById('fHasta').value = d;
+  renderAll();
+});
+document.getElementById('btnRange7').addEventListener('click', ()=>{
+  const d = lastRealDay(); if (!d) return;
+  const end = new Date(d+'T00:00:00'); const start = new Date(end); start.setDate(start.getDate()-6);
+  document.getElementById('fDesde').value = fmtDate(start); document.getElementById('fHasta').value = fmtDate(end);
+  renderAll();
+});
+document.getElementById('btnRangeMes').addEventListener('click', ()=>{
+  const d = lastRealDay(); if (!d) return;
+  const end = new Date(d+'T00:00:00'); const start = new Date(end.getFullYear(), end.getMonth(), 1);
+  document.getElementById('fDesde').value = fmtDate(start); document.getElementById('fHasta').value = fmtDate(end);
+  renderAll();
+});
+document.getElementById('btnRangeAnio').addEventListener('click', ()=>{
+  document.getElementById('fDesde').value = document.getElementById('fDesde').min || '2026-01-01';
+  document.getElementById('fHasta').value = document.getElementById('fHasta').max || '2026-12-31';
+  renderAll();
+});
 document.getElementById('fCompareYear').addEventListener('change', renderAll);
 document.getElementById('tblSearch').addEventListener('input', ()=>renderTable(filterByDate(getYearData(currentProp,'2026'), document.getElementById('fDesde').value, document.getElementById('fHasta').value)));
 document.querySelectorAll('th[data-k]').forEach(th=>th.addEventListener('click', ()=>{
