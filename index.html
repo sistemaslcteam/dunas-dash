@@ -109,6 +109,10 @@ tbody tr:hover{background:var(--sandbg);}
     <div class="hdr-kpi"><div class="v" id="hTotalHab">—</div><div class="l">Hab. disponibles (periodo)</div></div>
     <div class="hdr-kpi"><div class="v" id="hTotalGen">—</div><div class="l">Total general</div></div>
   </div>
+  <div class="hdr-tabs" id="secTabs">
+    <button class="htab on" data-sec="ventas">VENTAS</button>
+    <button class="htab" data-sec="resultados">ESTADO DE RESULTADOS</button>
+  </div>
   <div class="hdr-tabs" id="propTabs">
     <button class="htab on" data-prop="torre">TORRE DUNAS</button>
     <button class="htab" data-prop="ovalo">ÓVALO</button>
@@ -122,6 +126,7 @@ tbody tr:hover{background:var(--sandbg);}
 </div>
 
 <div class="main">
+  <div id="ventasSection">
   <div class="fbar">
     <label>Desde</label><input type="date" id="fDesde">
     <label>Hasta</label><input type="date" id="fHasta">
@@ -182,6 +187,67 @@ tbody tr:hover{background:var(--sandbg);}
       </table>
     </div>
   </div>
+  </div><!-- /ventasSection -->
+
+  <div id="resultadosSection" style="display:none;">
+    <div class="fbar">
+      <label>Propiedad</label>
+      <select id="erProp"><option value="dunas">Torre Dunas</option><option value="ovalo">Óvalo</option><option value="combinado">Combinado</option></select>
+      <label>Mes</label>
+      <select id="erMes"></select>
+      <label>Ver</label>
+      <select id="erVista"><option value="real">Real</option><option value="ppto">Presupuesto</option><option value="ambos">Real vs Presupuesto</option></select>
+      <div class="fsep"></div>
+      <a id="erSheetLink" href="#" target="_blank" class="chip" style="text-decoration:none;">🔗 Abrir Google Sheet en línea</a>
+      <span class="chip" id="erUpdateChip" style="margin-left:auto;background:#f0fdf4;color:#166534;border-color:#c8ecd4;">—</span>
+    </div>
+
+    <div class="krow" style="grid-template-columns:repeat(4,1fr);">
+      <div class="kpi k1"><div class="kv" id="erVenta">—</div><div class="kl">Venta (Ingreso)</div><div class="ksub" id="erVentaSub"></div></div>
+      <div class="kpi k4"><div class="kv" id="erCosto">—</div><div class="kl">Costo</div><div class="ksub" id="erCostoSub"></div></div>
+      <div class="kpi k3"><div class="kv" id="erGasto">—</div><div class="kl">Gasto</div><div class="ksub" id="erGastoSub"></div></div>
+      <div class="kpi k2"><div class="kv" id="erUtilidad">—</div><div class="kl">Utilidad</div><div class="ksub" id="erUtilidadSub"></div></div>
+    </div>
+
+    <div class="cgrid" style="grid-template-columns:1fr 1.2fr;">
+      <div class="cc">
+        <div class="cch"><div><div class="cct">Concentrado por rubro</div><div class="ccs">Presupuesto vs Real del periodo seleccionado</div></div></div>
+        <canvas id="chartRubros"></canvas>
+      </div>
+      <div class="cc">
+        <div class="cch"><div><div class="cct">Tendencia mensual</div><div class="ccs">Venta, Costo, Gasto y Utilidad — todo 2026</div></div></div>
+        <canvas id="chartTendencia"></canvas>
+      </div>
+    </div>
+
+    <div class="tw" style="margin-bottom:12px;">
+      <div class="tbar"><div class="cct">Concentrado por rubro — detalle</div></div>
+      <div class="ts">
+        <table>
+          <thead><tr><th>Rubro</th><th>Presupuesto</th><th>Real</th><th>Variación</th><th>% Cumplimiento</th></tr></thead>
+          <tbody id="erRubroBody"><tr><td colspan="5" class="em">Cargando…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="tw">
+      <div class="tbar">
+        <div class="cct">Desglose por partida</div>
+        <div style="display:flex;gap:8px;">
+          <select id="erRubroFiltro" style="padding:6px 10px;border:1.5px solid var(--line);border-radius:7px;font-size:11px;"><option value="">Todos los rubros</option></select>
+          <input class="tsrch" id="erSearch" placeholder="Buscar partida…">
+        </div>
+      </div>
+      <div class="ts">
+        <table>
+          <thead><tr>
+            <th data-ek="rubro">Rubro</th><th data-ek="concepto">Partida</th><th data-ek="ppto">Presupuesto</th><th data-ek="real">Real</th><th data-ek="var">Variación</th><th data-ek="pct">% Cumpl.</th>
+          </tr></thead>
+          <tbody id="erPartidasBody"><tr><td colspan="6" class="em">Cargando…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div><!-- /resultadosSection -->
 </div>
 
 <div class="ov" id="modalSettings">
@@ -195,6 +261,8 @@ tbody tr:hover{background:var(--sandbg);}
       <div><label>Pestaña Torre 2025</label><input id="cfgTorre2025"></div>
       <div><label>Pestaña Óvalo 2026</label><input id="cfgOvalo2026"></div>
       <div><label>Pestaña Óvalo 2025</label><input id="cfgOvalo2025"></div>
+      <div><label>Pestaña PPTO Torre Dunas</label><input id="cfgPptoDunas"></div>
+      <div><label>Pestaña PPTO Óvalo</label><input id="cfgPptoOvalo"></div>
     </div>
     <div class="two-col">
       <div><label>Habitaciones (respaldo, solo si el Sheet no trae la columna "TOTAL HABITACIONES")</label><input id="cfgRoomsTorre" type="number"></div>
@@ -249,7 +317,7 @@ const OVALO_SEGMENTS = [
 ];
 const DEFAULTS = {
   sheetId: '1ubmbP5da8--qiYNaQFC60MutkpeaABC80pjzCwXiEUw',
-  tabs: { torre2026:'DIRECTOR 2026', torre2025:'DIRECTOR 2025', ovalo2026:'OVALO 2026', ovalo2025:'VENTAS OVALO 2025' },
+  tabs: { torre2026:'DIRECTOR 2026', torre2025:'DIRECTOR 2025', ovalo2026:'OVALO 2026', ovalo2025:'VENTAS OVALO 2025', pptoDunas:'PPTO DUNAS 2026', pptoOvalo:'PPTO OVALO 2026' },
   roomsFallback: 100, // solo se usa si el Sheet no trae capacidad diaria (columna D)
   autoRefreshMin: 10,
   mapTorre: TORRE_COLMAP, mapOvalo: OVALO_COLMAP,
@@ -257,6 +325,11 @@ const DEFAULTS = {
 };
 const PALETTE = ['#8a5a2e','#c9a06f','#d9b48f','#5b8fb9','#2ecc71','#f59e0b','#ec4899','#8e6db5','#4b5563','#0ea5e9'];
 function colorFor(key, list){ const i = list.findIndex(s=>s.key===key); return PALETTE[i % PALETTE.length]; }
+
+const MESES = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE'];
+let PPTO = { dunas:null, ovalo:null, loaded:false };
+let currentSection = 'ventas';
+let erSort = {k:'concepto', dir:1};
 
 let CFG = null;
 let RAW = {}; // torre2026, torre2025, ovalo2026, ovalo2025 -> array of daily records
@@ -608,10 +681,270 @@ function renderTable(data26){
   </tr>`).join('');
 }
 
+
+/* ================= ESTADO DE RESULTADOS (PPTO) ================= */
+const RUBRO_SWITCH = {
+  'COSTO DIRECTO':'COSTO DIRECTO', 'COSTO INDIRECTO':'COSTO INDIRECTO',
+  'GASTOS DE OPERACIÓN':'GASTOS DE OPERACIÓN', 'GASTOS DE OPERACION':'GASTOS DE OPERACIÓN',
+  'GASTOS FINANCIEROS':'GASTOS FINANCIEROS'
+};
+const SUMMARY_ROWS = {
+  'TOTAL DE INGRESOS': {key:'ingreso', rubro:'INGRESOS'},
+  'COSTO DIRECTO TOTAL': {key:'costoDirecto', rubro:'COSTO DIRECTO'},
+  'COSTO INDIRECTO TOTAL': {key:'costoIndirecto', rubro:'COSTO INDIRECTO'},
+  'COSTO TOTAL DE OPERACIÓN': {key:'costoTotal', rubro:'RESUMEN'},
+  'COSTO TOTAL DE OPERACION': {key:'costoTotal', rubro:'RESUMEN'},
+  'BENEFICIO BRUTO': {key:'beneficioBruto', rubro:'RESUMEN'},
+  'TOTAL GASTO DE OPERACIÓN': {key:'gastoOperacion', rubro:'GASTOS DE OPERACIÓN'},
+  'TOTAL GASTO DE OPERACION': {key:'gastoOperacion', rubro:'GASTOS DE OPERACIÓN'},
+  'UAFIR/ BENEFICIO NETO': {key:'uafir', rubro:'RESUMEN'},
+  'TOTAL GASTOS FINANCIEROS': {key:'gastoFinanciero', rubro:'GASTOS FINANCIEROS'},
+  'UTILIDAD DE LA OPERACIÓN': {key:'utilidadOperacion', rubro:'RESUMEN'},
+  'UTILIDAD DE LA OPERACION': {key:'utilidadOperacion', rubro:'RESUMEN'},
+  'GASTOS DE CIERRE': {key:'gastoCierre', rubro:'RESUMEN'}
+};
+const RUBRO_ORDER = ['INGRESOS','COSTO DIRECTO','COSTO INDIRECTO','GASTOS DE OPERACIÓN','GASTOS FINANCIEROS'];
+
+function normLabel(s){ return String(s||'').trim().toUpperCase().replace(/\s+/g,' '); }
+
+function findPptoHeaderRow(rows){
+  for (let r=0; r<Math.min(rows.length,8); r++){
+    let count=0;
+    for (const cell of (rows[r]||[])) if (/^PTTO\s+/i.test(String(cell||'').trim())) count++;
+    if (count>=2) return r;
+  }
+  return 0;
+}
+function detectPptoMonths(rows, headerRowIdx){
+  const header = rows[headerRowIdx] || [];
+  const months = [];
+  for (let c=0;c<header.length;c++){
+    const m = String(header[c]||'').trim().match(/^PTTO\s+(.+)$/i);
+    if (m){
+      const name = normLabel(m[1]);
+      let realCol = null;
+      for (let c2=c+1; c2<Math.min(c+14, header.length); c2++){
+        const t = normLabel(header[c2]);
+        if (/^PTTO\s+/i.test(String(header[c2]||'').trim())) break;
+        if (t === 'TOTALES'){ realCol = c2; break; }
+      }
+      months.push({name, pptoCol:c, realCol});
+    }
+  }
+  months.sort((a,b)=>MESES.indexOf(a.name)-MESES.indexOf(b.name));
+  return months;
+}
+function parsePptoSheet(rows){
+  const headerRowIdx = findPptoHeaderRow(rows);
+  const months = detectPptoMonths(rows, headerRowIdx);
+  let currentRubro = 'INGRESOS';
+  const partidas = [], summaries = [];
+  for (let r=headerRowIdx+1; r<rows.length; r++){
+    const row = rows[r] || [];
+    const conceptRaw = (row[2]||'').trim(); // columna C
+    if (!conceptRaw) continue;
+    const norm = normLabel(conceptRaw);
+    if (RUBRO_SWITCH[norm]){ currentRubro = RUBRO_SWITCH[norm]; continue; }
+    const ppto = {}, real = {};
+    for (const m of months){
+      ppto[m.name] = cleanNum(row[m.pptoCol]);
+      real[m.name] = m.realCol!=null ? cleanNum(row[m.realCol]) : 0;
+    }
+    if (SUMMARY_ROWS[norm]){
+      summaries.push({key:SUMMARY_ROWS[norm].key, rubro:SUMMARY_ROWS[norm].rubro, label:conceptRaw, ppto, real});
+      continue;
+    }
+    partidas.push({rubro: currentRubro, concepto: conceptRaw, ppto, real});
+  }
+  return {months, partidas, summaries};
+}
+async function loadPPTO(){
+  try{
+    const [dRows, oRows] = await Promise.all([
+      fetchTab(CFG.sheetId, CFG.tabs.pptoDunas),
+      fetchTab(CFG.sheetId, CFG.tabs.pptoOvalo)
+    ]);
+    PPTO.dunas = parsePptoSheet(dRows);
+    PPTO.ovalo = parsePptoSheet(oRows);
+    PPTO.loaded = true;
+    populateMesSelect();
+    document.getElementById('erUpdateChip').textContent = 'Última actualización: ' + new Date().toLocaleTimeString('es-MX');
+    renderResultados();
+  }catch(err){
+    console.error(err);
+    document.getElementById('erRubroBody').innerHTML = `<tr><td colspan="5" class="em">No se pudo leer el presupuesto: ${err.message}. Verifica en ⚙ Configuración que las pestañas "PPTO Torre Dunas" / "PPTO Óvalo" existan con esos nombres exactos en tu Google Sheet.</td></tr>`;
+    document.getElementById('erPartidasBody').innerHTML = '';
+  }
+}
+function populateMesSelect(){
+  const sel = document.getElementById('erMes');
+  if (sel.options.length) return;
+  const months = (PPTO.dunas && PPTO.dunas.months) || [];
+  sel.innerHTML = '<option value="ANUAL">Acumulado anual</option>' + months.map(m=>`<option value="${m.name}">${m.name.charAt(0)+m.name.slice(1).toLowerCase()}</option>`).join('');
+}
+function sumSummary(summaries, key, mesSel, field){
+  const s = summaries.find(x=>x.key===key);
+  if (!s) return 0;
+  if (mesSel === 'ANUAL') return Object.values(s[field]).reduce((a,b)=>a+b,0);
+  return s[field][mesSel] || 0;
+}
+function sumPartida(p, mesSel, field){
+  if (mesSel === 'ANUAL') return Object.values(p[field]).reduce((a,b)=>a+b,0);
+  return p[field][mesSel] || 0;
+}
+function getDataset(prop){
+  if (prop === 'dunas') return PPTO.dunas ? [PPTO.dunas] : [];
+  if (prop === 'ovalo') return PPTO.ovalo ? [PPTO.ovalo] : [];
+  return [PPTO.dunas, PPTO.ovalo].filter(Boolean);
+}
+function combinedSummaryVal(prop, key, mesSel, field){
+  return getDataset(prop).reduce((acc,ds)=>acc + sumSummary(ds.summaries, key, mesSel, field), 0);
+}
+function combinedPartidas(prop, mesSel){
+  const out = [];
+  for (const ds of getDataset(prop)){
+    for (const p of ds.partidas){
+      out.push({ rubro:p.rubro, concepto:p.concepto, ppto: sumPartida(p, mesSel, 'ppto'), real: sumPartida(p, mesSel, 'real') });
+    }
+  }
+  return out;
+}
+function pctDelta(cur, base){ if (!base) return null; return ((cur-base)/base)*100; }
+function setERDelta(id, cur, base){
+  const el = document.getElementById(id);
+  const d = pctDelta(cur, base);
+  if (d === null){ el.textContent = ''; return; }
+  el.className = 'ksub ' + (d>=0?'up':'down');
+  el.textContent = (d>=0?'▲ ':'▼ ') + Math.abs(d).toFixed(1) + '% vs presupuesto';
+}
+function renderResultados(){
+  if (!PPTO.loaded) return;
+  const prop = document.getElementById('erProp').value;
+  const mesSel = document.getElementById('erMes').value || 'ANUAL';
+  const vista = document.getElementById('erVista').value;
+  document.getElementById('erSheetLink').href = `https://docs.google.com/spreadsheets/d/${CFG.sheetId}/edit`;
+
+  const field = vista === 'ppto' ? 'ppto' : 'real';
+  const ingreso = combinedSummaryVal(prop,'ingreso',mesSel,field);
+  const costo = combinedSummaryVal(prop,'costoDirecto',mesSel,field) + combinedSummaryVal(prop,'costoIndirecto',mesSel,field);
+  const gasto = combinedSummaryVal(prop,'gastoOperacion',mesSel,field) + combinedSummaryVal(prop,'gastoFinanciero',mesSel,field) + combinedSummaryVal(prop,'gastoCierre',mesSel,field);
+  const utilidad = ingreso - costo - gasto;
+
+  document.getElementById('erVenta').textContent = fmtMoney(ingreso);
+  document.getElementById('erCosto').textContent = fmtMoney(costo);
+  document.getElementById('erGasto').textContent = fmtMoney(gasto);
+  document.getElementById('erUtilidad').textContent = fmtMoney(utilidad);
+
+  if (vista === 'ambos'){
+    const ingresoP = combinedSummaryVal(prop,'ingreso',mesSel,'ppto');
+    const costoP = combinedSummaryVal(prop,'costoDirecto',mesSel,'ppto') + combinedSummaryVal(prop,'costoIndirecto',mesSel,'ppto');
+    const gastoP = combinedSummaryVal(prop,'gastoOperacion',mesSel,'ppto') + combinedSummaryVal(prop,'gastoFinanciero',mesSel,'ppto') + combinedSummaryVal(prop,'gastoCierre',mesSel,'ppto');
+    const utilidadP = ingresoP - costoP - gastoP;
+    setERDelta('erVentaSub', ingreso, ingresoP);
+    setERDelta('erCostoSub', costo, costoP);
+    setERDelta('erGastoSub', gasto, gastoP);
+    setERDelta('erUtilidadSub', utilidad, utilidadP);
+  } else {
+    ['erVentaSub','erCostoSub','erGastoSub','erUtilidadSub'].forEach(id=>document.getElementById(id).textContent='');
+  }
+
+  // Concentrado por rubro
+  const rubroRows = RUBRO_ORDER.map(rb=>{
+    let ppto=0, real=0;
+    if (rb==='INGRESOS'){ ppto=combinedSummaryVal(prop,'ingreso',mesSel,'ppto'); real=combinedSummaryVal(prop,'ingreso',mesSel,'real'); }
+    if (rb==='COSTO DIRECTO'){ ppto=combinedSummaryVal(prop,'costoDirecto',mesSel,'ppto'); real=combinedSummaryVal(prop,'costoDirecto',mesSel,'real'); }
+    if (rb==='COSTO INDIRECTO'){ ppto=combinedSummaryVal(prop,'costoIndirecto',mesSel,'ppto'); real=combinedSummaryVal(prop,'costoIndirecto',mesSel,'real'); }
+    if (rb==='GASTOS DE OPERACIÓN'){ ppto=combinedSummaryVal(prop,'gastoOperacion',mesSel,'ppto'); real=combinedSummaryVal(prop,'gastoOperacion',mesSel,'real'); }
+    if (rb==='GASTOS FINANCIEROS'){ ppto=combinedSummaryVal(prop,'gastoFinanciero',mesSel,'ppto'); real=combinedSummaryVal(prop,'gastoFinanciero',mesSel,'real'); }
+    return {rubro:rb, ppto, real};
+  });
+  document.getElementById('erRubroBody').innerHTML = rubroRows.map(r=>{
+    const varr = r.real - r.ppto;
+    const pct = r.ppto ? (r.real/r.ppto*100) : 0;
+    return `<tr><td>${r.rubro}</td><td>${fmtMoney(r.ppto)}</td><td class="money">${fmtMoney(r.real)}</td>
+      <td class="${varr>=0?'money':''}" style="${varr<0?'color:#e74c3c;font-weight:700;':''}">${fmtMoney(varr)}</td><td>${pct.toFixed(0)}%</td></tr>`;
+  }).join('');
+
+  destroyChart('rubros');
+  charts.rubros = new Chart(document.getElementById('chartRubros'), {
+    type:'bar',
+    data:{ labels: rubroRows.map(r=>r.rubro), datasets:[
+      {label:'Presupuesto', data: rubroRows.map(r=>r.ppto), backgroundColor:'#d9b48f'},
+      {label:'Real', data: rubroRows.map(r=>r.real), backgroundColor:'#8a5a2e'}
+    ]},
+    options:{indexAxis:'y', responsive:true, plugins:{legend:{position:'bottom',labels:{boxWidth:10,font:{size:10}}}}, scales:{x:{ticks:{callback:v=>'$'+(v/1000).toFixed(0)+'k'}}}}
+  });
+
+  // Tendencia mensual (todo el año, campo seleccionado)
+  const months = (PPTO.dunas && PPTO.dunas.months.map(m=>m.name)) || MESES;
+  const trendField = vista === 'ppto' ? 'ppto' : 'real';
+  const serie = (key) => months.map(mn => combinedSummaryVal(prop, key, mn, trendField));
+  const ventaSerie = serie('ingreso');
+  const costoSerie = months.map(mn => combinedSummaryVal(prop,'costoDirecto',mn,trendField)+combinedSummaryVal(prop,'costoIndirecto',mn,trendField));
+  const gastoSerie = months.map(mn => combinedSummaryVal(prop,'gastoOperacion',mn,trendField)+combinedSummaryVal(prop,'gastoFinanciero',mn,trendField)+combinedSummaryVal(prop,'gastoCierre',mn,trendField));
+  const utilSerie = months.map((mn,i) => ventaSerie[i]-costoSerie[i]-gastoSerie[i]);
+  destroyChart('tendencia');
+  charts.tendencia = new Chart(document.getElementById('chartTendencia'), {
+    type:'line',
+    data:{ labels: months.map(m=>m.charAt(0)+m.slice(1).toLowerCase().slice(0,2)), datasets:[
+      {label:'Venta', data:ventaSerie, borderColor:'#2ecc71', tension:.3},
+      {label:'Costo', data:costoSerie, borderColor:'#e74c3c', tension:.3},
+      {label:'Gasto', data:gastoSerie, borderColor:'#f59e0b', tension:.3},
+      {label:'Utilidad', data:utilSerie, borderColor:'#8a5a2e', backgroundColor:'rgba(138,90,46,.12)', fill:true, tension:.3}
+    ]},
+    options:{responsive:true, plugins:{legend:{position:'bottom',labels:{boxWidth:10,font:{size:9}}}}, scales:{y:{ticks:{callback:v=>'$'+(v/1000).toFixed(0)+'k'}}}}
+  });
+
+  renderPartidas(prop, mesSel);
+}
+function renderPartidas(prop, mesSel){
+  let rows = combinedPartidas(prop, mesSel);
+  const rubroSel = document.getElementById('erRubroFiltro');
+  if (!rubroSel.options.length || rubroSel.dataset.filled !== '1'){
+    rubroSel.innerHTML = '<option value="">Todos los rubros</option>' + RUBRO_ORDER.map(r=>`<option value="${r}">${r}</option>`).join('');
+    rubroSel.dataset.filled = '1';
+  }
+  const rf = rubroSel.value;
+  if (rf) rows = rows.filter(r=>r.rubro===rf);
+  const q = document.getElementById('erSearch').value.trim().toLowerCase();
+  if (q) rows = rows.filter(r=>r.concepto.toLowerCase().includes(q));
+  rows = rows.map(r=>({...r, var: r.real-r.ppto, pct: r.ppto? (r.real/r.ppto*100) : 0}));
+  rows.sort((a,b)=>{ const d = a[erSort.k] > b[erSort.k] ? 1 : a[erSort.k] < b[erSort.k] ? -1 : 0; return d*erSort.dir; });
+  const tb = document.getElementById('erPartidasBody');
+  if (!rows.length){ tb.innerHTML = '<tr><td colspan="6" class="em">Sin partidas para este filtro</td></tr>'; return; }
+  tb.innerHTML = rows.map(r=>`<tr>
+    <td>${r.rubro}</td><td>${r.concepto}</td><td>${fmtMoney(r.ppto)}</td><td class="money">${fmtMoney(r.real)}</td>
+    <td style="${r.var<0?'color:#e74c3c;font-weight:700;':''}">${fmtMoney(r.var)}</td><td>${r.pct.toFixed(0)}%</td>
+  </tr>`).join('');
+}
+
 /* ================= EVENTS ================= */
+document.getElementById('secTabs').addEventListener('click', (e)=>{
+  const btn = e.target.closest('.htab'); if (!btn) return;
+  document.querySelectorAll('#secTabs .htab').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+  currentSection = btn.dataset.sec;
+  const isVentas = currentSection === 'ventas';
+  document.getElementById('ventasSection').style.display = isVentas ? '' : 'none';
+  document.getElementById('resultadosSection').style.display = isVentas ? 'none' : '';
+  document.getElementById('propTabs').style.display = isVentas ? '' : 'none';
+  document.querySelector('.hdr-kpis').style.display = isVentas ? '' : 'none';
+  if (!isVentas && !PPTO.loaded) loadPPTO();
+});
+document.getElementById('erProp').addEventListener('change', renderResultados);
+document.getElementById('erMes').addEventListener('change', renderResultados);
+document.getElementById('erVista').addEventListener('change', renderResultados);
+document.getElementById('erRubroFiltro').addEventListener('change', ()=>renderPartidas(document.getElementById('erProp').value, document.getElementById('erMes').value||'ANUAL'));
+document.getElementById('erSearch').addEventListener('input', ()=>renderPartidas(document.getElementById('erProp').value, document.getElementById('erMes').value||'ANUAL'));
+document.querySelectorAll('th[data-ek]').forEach(th=>th.addEventListener('click', ()=>{
+  const k = th.dataset.ek;
+  erSort.dir = (erSort.k===k) ? -erSort.dir : 1; erSort.k = k;
+  renderPartidas(document.getElementById('erProp').value, document.getElementById('erMes').value||'ANUAL');
+}));
+
 document.getElementById('propTabs').addEventListener('click', (e)=>{
   const btn = e.target.closest('.htab'); if (!btn) return;
-  document.querySelectorAll('.htab').forEach(b=>b.classList.remove('on'));
+  document.querySelectorAll('#propTabs .htab').forEach(b=>b.classList.remove('on'));
   btn.classList.add('on');
   currentProp = btn.dataset.prop;
   renderAll();
@@ -625,7 +958,7 @@ document.querySelectorAll('th[data-k]').forEach(th=>th.addEventListener('click',
   tblSort.dir = (tblSort.k===k) ? -tblSort.dir : 1; tblSort.k = k;
   renderTable(filterByDate(getYearData(currentProp,'2026'), document.getElementById('fDesde').value, document.getElementById('fHasta').value));
 }));
-document.getElementById('btnRefresh').addEventListener('click', ()=>{ toast('Actualizando…'); loadAll(); });
+document.getElementById('btnRefresh').addEventListener('click', ()=>{ toast('Actualizando…'); loadAll(); if (PPTO.loaded) loadPPTO(); });
 document.getElementById('btnSettings').addEventListener('click', ()=>{ fillSettingsForm(); openModal('modalSettings'); });
 
 function fillSettingsForm(){
@@ -634,6 +967,8 @@ function fillSettingsForm(){
   document.getElementById('cfgTorre2025').value = CFG.tabs.torre2025;
   document.getElementById('cfgOvalo2026').value = CFG.tabs.ovalo2026;
   document.getElementById('cfgOvalo2025').value = CFG.tabs.ovalo2025;
+  document.getElementById('cfgPptoDunas').value = CFG.tabs.pptoDunas;
+  document.getElementById('cfgPptoOvalo').value = CFG.tabs.pptoOvalo;
   document.getElementById('cfgRoomsTorre').value = CFG.roomsFallback;
   document.getElementById('cfgAutoRefresh').value = CFG.autoRefreshMin;
   document.getElementById('cfgMapTorre').value = JSON.stringify(CFG.mapTorre, null, 1);
@@ -646,6 +981,8 @@ document.getElementById('btnSaveSettings').addEventListener('click', async ()=>{
     CFG.tabs.torre2025 = document.getElementById('cfgTorre2025').value.trim();
     CFG.tabs.ovalo2026 = document.getElementById('cfgOvalo2026').value.trim();
     CFG.tabs.ovalo2025 = document.getElementById('cfgOvalo2025').value.trim();
+    CFG.tabs.pptoDunas = document.getElementById('cfgPptoDunas').value.trim();
+    CFG.tabs.pptoOvalo = document.getElementById('cfgPptoOvalo').value.trim();
     CFG.roomsFallback = parseInt(document.getElementById('cfgRoomsTorre').value)||CFG.roomsFallback;
     CFG.autoRefreshMin = parseInt(document.getElementById('cfgAutoRefresh').value)||0;
     CFG.mapTorre = JSON.parse(document.getElementById('cfgMapTorre').value);
@@ -655,8 +992,11 @@ document.getElementById('btnSaveSettings').addEventListener('click', async ()=>{
     toast('Configuración guardada');
     setupAutoRefresh();
     loadAll();
+    PPTO.loaded = false;
+    if (currentSection === 'resultados') loadPPTO();
   }catch(e){ toast('Error en el JSON de mapeo de columnas'); }
 });
+
 
 let autoRefreshTimer = null;
 function setupAutoRefresh(){
