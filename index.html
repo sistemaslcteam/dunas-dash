@@ -907,6 +907,18 @@ function setERDelta(id, cur, base){
   el.className = 'ksub ' + (d>=0?'up':'down');
   el.textContent = `Presupuesto: ${fmtMoney(base)} · ` + (d>=0?'▲ ':'▼ ') + Math.abs(d).toFixed(1) + '%';
 }
+function rubroPartidaAgg(prop, rubro, mesSel, field){
+  let sum = 0, err = false;
+  for (const ds of getDataset(prop)){
+    for (const p of ds.partidas){
+      if (p.rubro !== rubro) continue;
+      sum += sumPartida(p, mesSel, field);
+      const eo = field==='real' ? p.realErr : p.pptoErr;
+      if (eo && (mesSel==='ANUAL' ? Object.keys(eo).length>0 : eo[mesSel])) err = true;
+    }
+  }
+  return { sum, err };
+}
 function renderResultados(){
   if (!PPTO.loaded) return;
   const prop = document.getElementById('erProp').value;
@@ -915,13 +927,22 @@ function renderResultados(){
   document.getElementById('erSheetLink').href = `https://docs.google.com/spreadsheets/d/${CFG.sheetId}/edit`;
 
   const field = vista === 'ppto' ? 'ppto' : 'real';
-  const ingreso = combinedSummaryVal(prop,'ingreso',mesSel,field);
-  const costo = combinedSummaryVal(prop,'costoDirecto',mesSel,field) + combinedSummaryVal(prop,'costoIndirecto',mesSel,field);
-  const gasto = combinedSummaryVal(prop,'gastoOperacion',mesSel,field) + combinedSummaryVal(prop,'gastoFinanciero',mesSel,field) + combinedSummaryVal(prop,'gastoCierre',mesSel,field);
+  // Se suman las partidas de cada rubro directamente (no se usan las celdas "TOTAL" del Sheet,
+  // que pueden venir rotas por errores de fórmula arrastrados desde filas de nómina).
+  const ingresoAgg = rubroPartidaAgg(prop, 'INGRESOS', mesSel, field);
+  const costoDirAgg = rubroPartidaAgg(prop, 'COSTO DIRECTO', mesSel, field);
+  const costoIndAgg = rubroPartidaAgg(prop, 'COSTO INDIRECTO', mesSel, field);
+  const gastoOpAgg = rubroPartidaAgg(prop, 'GASTOS DE OPERACIÓN', mesSel, field);
+  const gastoFinAgg = rubroPartidaAgg(prop, 'GASTOS FINANCIEROS', mesSel, field);
+  const gastoCierre = combinedSummaryVal(prop,'gastoCierre',mesSel,field); // línea suelta, sin desglose de partidas
+
+  const ingreso = ingresoAgg.sum;
+  const costo = costoDirAgg.sum + costoIndAgg.sum;
+  const gasto = gastoOpAgg.sum + gastoFinAgg.sum + gastoCierre;
   const utilidad = ingreso - costo - gasto;
-  const errIngreso = combinedHasError(prop,'ingreso',mesSel,field);
-  const errCosto = combinedHasError(prop,'costoDirecto',mesSel,field) || combinedHasError(prop,'costoIndirecto',mesSel,field);
-  const errGasto = combinedHasError(prop,'gastoOperacion',mesSel,field) || combinedHasError(prop,'gastoFinanciero',mesSel,field);
+  const errIngreso = ingresoAgg.err;
+  const errCosto = costoDirAgg.err || costoIndAgg.err;
+  const errGasto = gastoOpAgg.err || gastoFinAgg.err;
   const anyErr = errIngreso || errCosto || errGasto;
 
   document.getElementById('erVenta').textContent = fmtMoney(ingreso) + (errIngreso?' ⚠':'');
@@ -938,17 +959,17 @@ function renderResultados(){
   }
   if (anyErr){
     erErrNote.style.display = '';
-    erErrNote.innerHTML = `⚠ Uno o más totales de <strong>${prop==='dunas'?'Torre Dunas':prop==='ovalo'?'Óvalo':'Torre Dunas / Óvalo'}</strong> para <strong>${mesSel==='ANUAL'?'el acumulado anual':mesSel.charAt(0)+mesSel.slice(1).toLowerCase()}</strong>
-      contienen celdas con error de fórmula (<code>#ERROR!</code> / <code>#REF!</code>) en el Google Sheet — por eso el número mostrado no incluye esa parte y puede estar incompleto.
-      El origen parece estar en las filas de <strong>NOMINA DIVISION CUARTOS</strong> / <strong>NOMINA OPERATIVA</strong>, que arrastran el error a los totales de Costo y Gasto. Corrígelo en el Sheet y se reflejará solo en el próximo refresco.`;
+    erErrNote.innerHTML = `⚠ Algunas partidas individuales de <strong>${prop==='dunas'?'Torre Dunas':prop==='ovalo'?'Óvalo':'Torre Dunas / Óvalo'}</strong> para <strong>${mesSel==='ANUAL'?'el acumulado anual':mesSel.charAt(0)+mesSel.slice(1).toLowerCase()}</strong>
+      tienen error de fórmula (<code>#ERROR!</code> / <code>#REF!</code>) en el Google Sheet, así que el total mostrado puede estar ligeramente incompleto (se suman las demás partidas correctamente).
+      Revisa las filas de <strong>NOMINA DIVISION CUARTOS</strong> / <strong>NOMINA OPERATIVA</strong> en el Sheet — ahí parece originarse el error.`;
   } else {
     erErrNote.style.display = 'none';
   }
 
   if (vista === 'ambos'){
-    const ingresoP = combinedSummaryVal(prop,'ingreso',mesSel,'ppto');
-    const costoP = combinedSummaryVal(prop,'costoDirecto',mesSel,'ppto') + combinedSummaryVal(prop,'costoIndirecto',mesSel,'ppto');
-    const gastoP = combinedSummaryVal(prop,'gastoOperacion',mesSel,'ppto') + combinedSummaryVal(prop,'gastoFinanciero',mesSel,'ppto') + combinedSummaryVal(prop,'gastoCierre',mesSel,'ppto');
+    const ingresoP = rubroPartidaAgg(prop,'INGRESOS',mesSel,'ppto').sum;
+    const costoP = rubroPartidaAgg(prop,'COSTO DIRECTO',mesSel,'ppto').sum + rubroPartidaAgg(prop,'COSTO INDIRECTO',mesSel,'ppto').sum;
+    const gastoP = rubroPartidaAgg(prop,'GASTOS DE OPERACIÓN',mesSel,'ppto').sum + rubroPartidaAgg(prop,'GASTOS FINANCIEROS',mesSel,'ppto').sum + combinedSummaryVal(prop,'gastoCierre',mesSel,'ppto');
     const utilidadP = ingresoP - costoP - gastoP;
     setERDelta('erVentaSub', ingreso, ingresoP);
     setERDelta('erCostoSub', costo, costoP);
@@ -961,11 +982,11 @@ function renderResultados(){
   // Concentrado por rubro
   const rubroRows = RUBRO_ORDER.map(rb=>{
     let ppto=0, real=0, err=false;
-    if (rb==='INGRESOS'){ ppto=combinedSummaryVal(prop,'ingreso',mesSel,'ppto'); real=combinedSummaryVal(prop,'ingreso',mesSel,'real'); err=combinedHasError(prop,'ingreso',mesSel,'real'); }
-    if (rb==='COSTO DIRECTO'){ ppto=combinedSummaryVal(prop,'costoDirecto',mesSel,'ppto'); real=combinedSummaryVal(prop,'costoDirecto',mesSel,'real'); err=combinedHasError(prop,'costoDirecto',mesSel,'real'); }
-    if (rb==='COSTO INDIRECTO'){ ppto=combinedSummaryVal(prop,'costoIndirecto',mesSel,'ppto'); real=combinedSummaryVal(prop,'costoIndirecto',mesSel,'real'); err=combinedHasError(prop,'costoIndirecto',mesSel,'real'); }
-    if (rb==='GASTOS DE OPERACIÓN'){ ppto=combinedSummaryVal(prop,'gastoOperacion',mesSel,'ppto'); real=combinedSummaryVal(prop,'gastoOperacion',mesSel,'real'); err=combinedHasError(prop,'gastoOperacion',mesSel,'real'); }
-    if (rb==='GASTOS FINANCIEROS'){ ppto=combinedSummaryVal(prop,'gastoFinanciero',mesSel,'ppto'); real=combinedSummaryVal(prop,'gastoFinanciero',mesSel,'real'); err=combinedHasError(prop,'gastoFinanciero',mesSel,'real'); }
+    if (rb==='INGRESOS'){ ppto=ingresoAgg.sum; real=rubroPartidaAgg(prop,'INGRESOS',mesSel,'real').sum; err=errIngreso; }
+    if (rb==='COSTO DIRECTO'){ ppto=costoDirAgg.sum; real=rubroPartidaAgg(prop,'COSTO DIRECTO',mesSel,'real').sum; err=costoDirAgg.err; }
+    if (rb==='COSTO INDIRECTO'){ ppto=costoIndAgg.sum; real=rubroPartidaAgg(prop,'COSTO INDIRECTO',mesSel,'real').sum; err=costoIndAgg.err; }
+    if (rb==='GASTOS DE OPERACIÓN'){ ppto=gastoOpAgg.sum; real=rubroPartidaAgg(prop,'GASTOS DE OPERACIÓN',mesSel,'real').sum; err=gastoOpAgg.err; }
+    if (rb==='GASTOS FINANCIEROS'){ ppto=gastoFinAgg.sum; real=rubroPartidaAgg(prop,'GASTOS FINANCIEROS',mesSel,'real').sum; err=gastoFinAgg.err; }
     return {rubro:rb, ppto, real, err};
   });
   document.getElementById('erRubroBody').innerHTML = rubroRows.map(r=>{
