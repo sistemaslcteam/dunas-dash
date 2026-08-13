@@ -787,10 +787,15 @@ function parsePptoSheet(rows){
     }
     partidas.push({rubro: currentRubro, concepto: conceptRaw, ppto, real, unit, realErr, pptoErr, weekly});
   }
-  // meses sin columna "TOTALES" detectada (problema estructural) y meses con ingreso real en $0 (posible falta de captura)
-  const ingresoRow = summaries.find(s=>s.key==='ingreso');
+  // meses sin columna "TOTALES" detectada (problema estructural) y meses sin ningún dato real capturado
+  // (se revisa sumando las partidas de INGRESOS, igual que el resto del dashboard — no la celda TOTAL, que puede venir rota)
   const monthsNoRealCol = months.filter(m=>m.realCol==null).map(m=>m.name);
-  const monthsNoData = ingresoRow ? months.filter(m=>!monthsNoRealCol.includes(m.name) && (ingresoRow.real[m.name]||0)===0).map(m=>m.name) : [];
+  const ingresoPartidas = partidas.filter(p=>p.rubro==='INGRESOS');
+  const monthsNoData = months.filter(m=>{
+    if (monthsNoRealCol.includes(m.name)) return false;
+    const sum = ingresoPartidas.reduce((s,p)=>s+(p.real[m.name]||0),0);
+    return sum === 0;
+  }).map(m=>m.name);
   return {months, partidas, summaries, headerRowIdx, errorCount, monthsNoRealCol, monthsNoData};
 }
 async function loadPPTO(){
@@ -929,20 +934,30 @@ function renderResultados(){
   const field = vista === 'ppto' ? 'ppto' : 'real';
   // Se suman las partidas de cada rubro directamente (no se usan las celdas "TOTAL" del Sheet,
   // que pueden venir rotas por errores de fórmula arrastrados desde filas de nómina).
-  const ingresoAgg = rubroPartidaAgg(prop, 'INGRESOS', mesSel, field);
-  const costoDirAgg = rubroPartidaAgg(prop, 'COSTO DIRECTO', mesSel, field);
-  const costoIndAgg = rubroPartidaAgg(prop, 'COSTO INDIRECTO', mesSel, field);
-  const gastoOpAgg = rubroPartidaAgg(prop, 'GASTOS DE OPERACIÓN', mesSel, field);
-  const gastoFinAgg = rubroPartidaAgg(prop, 'GASTOS FINANCIEROS', mesSel, field);
-  const gastoCierre = combinedSummaryVal(prop,'gastoCierre',mesSel,field); // línea suelta, sin desglose de partidas
+  // Siempre se calculan AMBOS campos (ppto y real) por separado, independientemente de qué
+  // "vista" esté seleccionada, para que la tabla de rubros nunca mezcle uno con otro.
+  const RUBRO_KEYS = ['INGRESOS','COSTO DIRECTO','COSTO INDIRECTO','GASTOS DE OPERACIÓN','GASTOS FINANCIEROS'];
+  const agg = {};
+  for (const rb of RUBRO_KEYS){
+    agg[rb] = { ppto: rubroPartidaAgg(prop, rb, mesSel, 'ppto'), real: rubroPartidaAgg(prop, rb, mesSel, 'real') };
+  }
+  const gastoCierrePpto = combinedSummaryVal(prop,'gastoCierre',mesSel,'ppto');
+  const gastoCierreReal = combinedSummaryVal(prop,'gastoCierre',mesSel,'real');
 
-  const ingreso = ingresoAgg.sum;
-  const costo = costoDirAgg.sum + costoIndAgg.sum;
-  const gasto = gastoOpAgg.sum + gastoFinAgg.sum + gastoCierre;
-  const utilidad = ingreso - costo - gasto;
-  const errIngreso = ingresoAgg.err;
-  const errCosto = costoDirAgg.err || costoIndAgg.err;
-  const errGasto = gastoOpAgg.err || gastoFinAgg.err;
+  const ingresoP = agg['INGRESOS'].ppto.sum, ingresoR = agg['INGRESOS'].real.sum;
+  const costoP = agg['COSTO DIRECTO'].ppto.sum + agg['COSTO INDIRECTO'].ppto.sum;
+  const costoR = agg['COSTO DIRECTO'].real.sum + agg['COSTO INDIRECTO'].real.sum;
+  const gastoP = agg['GASTOS DE OPERACIÓN'].ppto.sum + agg['GASTOS FINANCIEROS'].ppto.sum + gastoCierrePpto;
+  const gastoR = agg['GASTOS DE OPERACIÓN'].real.sum + agg['GASTOS FINANCIEROS'].real.sum + gastoCierreReal;
+  const utilidadP = ingresoP - costoP - gastoP, utilidadR = ingresoR - costoR - gastoR;
+
+  const ingreso = field==='ppto' ? ingresoP : ingresoR;
+  const costo = field==='ppto' ? costoP : costoR;
+  const gasto = field==='ppto' ? gastoP : gastoR;
+  const utilidad = field==='ppto' ? utilidadP : utilidadR;
+  const errIngreso = agg['INGRESOS'][field].err;
+  const errCosto = agg['COSTO DIRECTO'][field].err || agg['COSTO INDIRECTO'][field].err;
+  const errGasto = agg['GASTOS DE OPERACIÓN'][field].err || agg['GASTOS FINANCIEROS'][field].err;
   const anyErr = errIngreso || errCosto || errGasto;
 
   document.getElementById('erVenta').textContent = fmtMoney(ingreso) + (errIngreso?' ⚠':'');
@@ -967,10 +982,6 @@ function renderResultados(){
   }
 
   if (vista === 'ambos'){
-    const ingresoP = rubroPartidaAgg(prop,'INGRESOS',mesSel,'ppto').sum;
-    const costoP = rubroPartidaAgg(prop,'COSTO DIRECTO',mesSel,'ppto').sum + rubroPartidaAgg(prop,'COSTO INDIRECTO',mesSel,'ppto').sum;
-    const gastoP = rubroPartidaAgg(prop,'GASTOS DE OPERACIÓN',mesSel,'ppto').sum + rubroPartidaAgg(prop,'GASTOS FINANCIEROS',mesSel,'ppto').sum + combinedSummaryVal(prop,'gastoCierre',mesSel,'ppto');
-    const utilidadP = ingresoP - costoP - gastoP;
     setERDelta('erVentaSub', ingreso, ingresoP);
     setERDelta('erCostoSub', costo, costoP);
     setERDelta('erGastoSub', gasto, gastoP);
@@ -979,16 +990,10 @@ function renderResultados(){
     ['erVentaSub','erCostoSub','erGastoSub','erUtilidadSub'].forEach(id=>document.getElementById(id).textContent='');
   }
 
-  // Concentrado por rubro
-  const rubroRows = RUBRO_ORDER.map(rb=>{
-    let ppto=0, real=0, err=false;
-    if (rb==='INGRESOS'){ ppto=ingresoAgg.sum; real=rubroPartidaAgg(prop,'INGRESOS',mesSel,'real').sum; err=errIngreso; }
-    if (rb==='COSTO DIRECTO'){ ppto=costoDirAgg.sum; real=rubroPartidaAgg(prop,'COSTO DIRECTO',mesSel,'real').sum; err=costoDirAgg.err; }
-    if (rb==='COSTO INDIRECTO'){ ppto=costoIndAgg.sum; real=rubroPartidaAgg(prop,'COSTO INDIRECTO',mesSel,'real').sum; err=costoIndAgg.err; }
-    if (rb==='GASTOS DE OPERACIÓN'){ ppto=gastoOpAgg.sum; real=rubroPartidaAgg(prop,'GASTOS DE OPERACIÓN',mesSel,'real').sum; err=gastoOpAgg.err; }
-    if (rb==='GASTOS FINANCIEROS'){ ppto=gastoFinAgg.sum; real=rubroPartidaAgg(prop,'GASTOS FINANCIEROS',mesSel,'real').sum; err=gastoFinAgg.err; }
-    return {rubro:rb, ppto, real, err};
-  });
+  // Concentrado por rubro — siempre presupuesto real vs real real, sin importar la "vista" elegida arriba
+  const rubroRows = RUBRO_KEYS.map(rb=>({
+    rubro: rb, ppto: agg[rb].ppto.sum, real: agg[rb].real.sum, err: agg[rb].real.err
+  }));
   document.getElementById('erRubroBody').innerHTML = rubroRows.map(r=>{
     const varr = r.real - r.ppto;
     const pct = r.ppto ? (r.real/r.ppto*100) : 0;
