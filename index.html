@@ -775,10 +775,28 @@ function parsePptoSheet(rows){
     for (const m of months){
       const pRaw = row[m.pptoCol], rRaw = m.realCol!=null ? row[m.realCol] : null;
       ppto[m.name] = cleanNum(pRaw);
-      real[m.name] = rRaw!=null ? cleanNum(rRaw) : 0;
       unit[m.name] = m.unitCol!=null ? cleanNum(row[m.unitCol]) : 0;
       if (isErrorCell(pRaw)){ pptoErr[m.name] = true; errorCount++; }
-      if (isErrorCell(rRaw)){ realErr[m.name] = true; errorCount++; }
+
+      // La celda "TOTALES" (real) puede venir rota (#ERROR!) si UNA sola semana dentro del mes
+      // tiene error, aunque el resto de las semanas sí tengan datos válidos. En ese caso,
+      // se reconstruye el total sumando únicamente las semanas que sí son números válidos,
+      // en vez de descartar todo el mes como $0.
+      let realVal = 0, monthHadErr = false;
+      if (rRaw!=null && !isErrorCell(rRaw)){
+        realVal = cleanNum(rRaw);
+      } else {
+        if (isErrorCell(rRaw)) monthHadErr = true;
+        if (m.weeks && m.weeks.length){
+          for (const w of m.weeks){
+            const wRaw = row[w.col];
+            if (isErrorCell(wRaw)){ monthHadErr = true; continue; }
+            realVal += cleanNum(wRaw);
+          }
+        }
+      }
+      real[m.name] = realVal;
+      if (monthHadErr){ realErr[m.name] = true; errorCount++; }
       weekly[m.name] = m.weeks.map(w => ({ label:w.label, value: cleanNum(row[w.col]), error: isErrorCell(row[w.col]) }));
     }
     if (SUMMARY_ROWS[norm]){
