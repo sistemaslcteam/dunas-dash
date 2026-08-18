@@ -590,11 +590,16 @@ function renderAll(){
     const totalGen25 = data25.reduce((s,r)=>s+r.totalGeneral,0);
     const hv25 = data25.reduce((s,r)=>s+r.hv,0);
     const ventaNeta25 = data25.reduce((s,r)=>s+r.ventaNeta,0);
+    const roomsSum25 = sumRooms(data25);
+    const ocup25 = roomsSum25>0 ? (hv25/roomsSum25)*100 : null;
+    const tarifaProm25 = data25.length ? data25.reduce((s,r)=>s+r.tarifaPromedio,0)/data25.length : null;
     setDelta('kVentaPromSub', ventaProm, data25.length? totalGen25/(data25.length||1) : null);
     setDelta('kVentaNetaSub', ventaNeta, ventaNeta25);
     setDelta('kHVSub', hv, hv25);
+    setDelta('kOcupSub', ocup, ocup25);
+    setDelta('kTarifaSub', tarifaProm, tarifaProm25);
   } else {
-    ['kVentaPromSub','kVentaNetaSub','kHVSub'].forEach(id=>document.getElementById(id).textContent='');
+    ['kVentaPromSub','kVentaNetaSub','kHVSub','kOcupSub','kTarifaSub'].forEach(id=>document.getElementById(id).textContent='');
   }
 
   renderCharts(data26, desde, hasta, compare);
