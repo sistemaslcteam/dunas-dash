@@ -631,6 +631,19 @@ function findMatch25Daily(r26, raw25){
   // si no hay esa semana en 2025, cae a la fecha exacta un año antes
   return raw25.find(r=>r.fechaStr === (r26.fecha.getFullYear()-1)+r26.fechaStr.slice(4)) || null;
 }
+function aggregateDailyMatches(matches){
+  const agg = { hv:0, totalGeneral:0, ventaNeta:0, tarifaSum:0, tarifaN:0, rooms:0, seg:{} };
+  let any = false;
+  for (const r of matches){
+    if (!r) continue;
+    any = true;
+    agg.hv += r.hv; agg.totalGeneral += r.totalGeneral; agg.ventaNeta += r.ventaNeta;
+    agg.tarifaSum += r.tarifaPromedio; agg.tarifaN++;
+    agg.rooms += (r.totalHabDia||0);
+    for (const k in r.seg) agg.seg[k] = (agg.seg[k]||0) + r.seg[k];
+  }
+  return any ? agg : null;
+}
 function renderCharts(data26, desde, hasta, compare){
   const granMode = document.getElementById('fGranularity').value;
   const daily = granMode === 'day' ? true : granMode === 'week' ? false : data26.length <= 14;
@@ -660,12 +673,20 @@ function renderCharts(data26, desde, hasta, compare){
     hv26 = w26.map(w=>w.hv);
     tarifa26 = w26.map(w=>w.tarifaN?w.tarifaSum/w.tarifaN:0);
     ocup26 = w26.map(w => w.rooms>0 ? Math.min(100,(w.hv/w.rooms)*100) : 0);
-    let w25 = [];
+    // Para 2025 se empareja cada día del periodo 2026 con su día equivalente en 2025 (mismo día de la
+    // semana, misma semana del año) y luego se agrupa por semana — así el periodo comparado es exactamente
+    // el mismo, sin depender de que el número de "semana" del Sheet coincida entre años.
+    let w25ByWeek = new Map();
     if (compare !== 'none'){
-      const weeksSet = new Set(w26.map(w=>w.semana));
-      w25 = weeklyAgg(raw25.filter(r=>weeksSet.has(r.semana)));
+      const byWeek = new Map();
+      for (const r of data26){
+        const wk = r.semana ?? -1;
+        if (!byWeek.has(wk)) byWeek.set(wk, []);
+        byWeek.get(wk).push(findMatch25Daily(r, raw25));
+      }
+      for (const [wk, matches] of byWeek) w25ByWeek.set(wk, aggregateDailyMatches(matches));
     }
-    const findW25 = (w) => w25.find(x=>x.semana===w.semana) || null;
+    const findW25 = (w) => w25ByWeek.get(w.semana) || null;
     const align25 = (key) => w26.map(w => { const f = findW25(w); return f ? f[key] : null; });
     ing25 = align25('totalGeneral');
     hv25arr = align25('hv');
