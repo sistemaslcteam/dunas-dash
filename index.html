@@ -619,34 +619,72 @@ function setDelta(id, cur, prev){
 
 let charts = {};
 function destroyChart(id){ if (charts[id]) { charts[id].destroy(); charts[id]=null; } }
+function dayOfWeek(fechaStr){ return new Date(fechaStr+'T00:00:00').getDay(); }
+function findMatch25Daily(r26, raw25){
+  const wd = dayOfWeek(r26.fechaStr);
+  // primero intenta mismo número de semana + mismo día de la semana (comparación "como negocio": mismo lunes de esa semana del año)
+  let m = raw25.find(r=>r.semana===r26.semana && dayOfWeek(r.fechaStr)===wd);
+  if (m) return m;
+  // si no hay esa semana en 2025, cae a la fecha exacta un año antes
+  return raw25.find(r=>r.fechaStr === (r26.fecha.getFullYear()-1)+r26.fechaStr.slice(4)) || null;
+}
 function renderCharts(data26, desde, hasta, compare){
-  const w26 = weeklyAgg(data26);
-  const weekLabels = w26.map(w=>'Sem '+w.semana);
-  let w25 = [];
-  if (compare !== 'none'){
-    const raw25 = getYearData(currentProp,'2025');
-    const weeksSet = new Set(w26.map(w=>w.semana));
-    w25 = weeklyAgg(raw25.filter(r=>weeksSet.has(r.semana)));
+  const daily = data26.length <= 14; // rango corto → comparación día a día; si no, por semana
+  const raw25 = compare !== 'none' ? getYearData(currentProp,'2025') : [];
+
+  let labels, ing26, ing25, hv26, hv25arr, tarifa26, tarifa25, ocupData, ocupLabels, segLabels, segBuckets;
+
+  if (daily){
+    const sorted = [...data26].sort((a,b)=>a.fecha-b.fecha);
+    labels = sorted.map(r => r.fecha.toLocaleDateString('es-MX',{day:'2-digit',month:'short'}));
+    ing26 = sorted.map(r=>r.totalGeneral);
+    hv26 = sorted.map(r=>r.hv);
+    tarifa26 = sorted.map(r=>r.tarifaPromedio);
+    const matches25 = sorted.map(r => compare!=='none' ? findMatch25Daily(r, raw25) : null);
+    ing25 = matches25.map(m => m ? m.totalGeneral : null);
+    hv25arr = matches25.map(m => m ? m.hv : null);
+    tarifa25 = matches25.map(m => m ? m.tarifaPromedio : null);
+    ocupData = sorted.map(r => r.totalHabDia>0 ? Math.min(100,(r.hv/r.totalHabDia)*100) : 0);
+    ocupLabels = labels;
+    segLabels = labels;
+    segBuckets = sorted;
+  } else {
+    const w26 = weeklyAgg(data26);
+    labels = w26.map(w=>'Sem '+w.semana);
+    ing26 = w26.map(w=>w.totalGeneral);
+    hv26 = w26.map(w=>w.hv);
+    tarifa26 = w26.map(w=>w.tarifaN?w.tarifaSum/w.tarifaN:0);
+    let w25 = [];
+    if (compare !== 'none'){
+      const weeksSet = new Set(w26.map(w=>w.semana));
+      w25 = weeklyAgg(raw25.filter(r=>weeksSet.has(r.semana)));
+    }
+    const align25 = (key) => w26.map(w => { const f = w25.find(x=>x.semana===w.semana); return f ? f[key] : null; });
+    ing25 = align25('totalGeneral');
+    hv25arr = align25('hv');
+    tarifa25 = w26.map(w=>{const f=w25.find(x=>x.semana===w.semana); return f&&f.tarifaN? f.tarifaSum/f.tarifaN : null;});
+    ocupData = w26.map(w => w.rooms>0 ? Math.min(100,(w.hv/w.rooms)*100) : 0);
+    ocupLabels = labels;
+    segLabels = w26.slice(-5).map(w=>'Sem '+w.semana);
+    segBuckets = w26.slice(-5);
   }
-  const align25 = (key) => w26.map(w => { const f = w25.find(x=>x.semana===w.semana); return f ? f[key] : null; });
 
   destroyChart('ing');
   charts.ing = new Chart(document.getElementById('chartIngresos'), {
     type:'line',
-    data:{ labels: weekLabels, datasets: [
-      {label:'2026', data:w26.map(w=>w.totalGeneral), borderColor:'#8a5a2e', backgroundColor:'rgba(138,90,46,.12)', fill:true, tension:.3},
-      ...(compare!=='none' ? [{label:'2025', data:align25('totalGeneral'), borderColor:'#c9a06f', backgroundColor:'rgba(201,160,111,.08)', fill:true, tension:.3, borderDash:[5,3]}] : [])
+    data:{ labels, datasets: [
+      {label:'2026', data:ing26, borderColor:'#8a5a2e', backgroundColor:'rgba(138,90,46,.12)', fill:true, tension:.3},
+      ...(compare!=='none' ? [{label:'2025', data:ing25, borderColor:'#c9a06f', backgroundColor:'rgba(201,160,111,.08)', fill:true, tension:.3, borderDash:[5,3]}] : [])
     ]},
     options:{responsive:true, plugins:{legend:{position:'bottom', labels:{boxWidth:10,font:{size:10}}}}, scales:{y:{ticks:{callback:v=>'$'+(v/1000).toFixed(0)+'k'}}}}
   });
 
   const segDefs = segmentsFor(currentProp);
-  const lastWeeks = w26.slice(-5);
   destroyChart('seg');
   charts.seg = new Chart(document.getElementById('chartSegmentos'), {
     type:'bar',
-    data:{ labels: lastWeeks.map(w=>'Sem '+w.semana), datasets: segDefs.map(s=>({
-      label:s.label, data:lastWeeks.map(w=>w.seg[s.key]||0), backgroundColor:colorFor(s.key,segDefs)
+    data:{ labels: segLabels, datasets: segDefs.map(s=>({
+      label:s.label, data:segBuckets.map(b=>b.seg[s.key]||0), backgroundColor:colorFor(s.key,segDefs)
     })) },
     options:{indexAxis:'y', responsive:true, plugins:{legend:{position:'bottom',labels:{boxWidth:10,font:{size:9}}}}, scales:{x:{stacked:true,ticks:{callback:v=>'$'+(v/1000).toFixed(0)+'k'}},y:{stacked:true}}}
   });
@@ -654,27 +692,26 @@ function renderCharts(data26, desde, hasta, compare){
   destroyChart('hv');
   charts.hv = new Chart(document.getElementById('chartHV'), {
     type:'bar',
-    data:{ labels: weekLabels, datasets:[
-      {label:'2026', data:w26.map(w=>w.hv), backgroundColor:'#8a5a2e'},
-      ...(compare!=='none' ? [{label:'2025', data:align25('hv'), backgroundColor:'#d9b48f'}] : [])
+    data:{ labels, datasets:[
+      {label:'2026', data:hv26, backgroundColor:'#8a5a2e'},
+      ...(compare!=='none' ? [{label:'2025', data:hv25arr, backgroundColor:'#d9b48f'}] : [])
     ]},
     options:{responsive:true, plugins:{legend:{position:'bottom',labels:{boxWidth:10,font:{size:10}}}}}
   });
 
   destroyChart('ocup');
-  const ocupData = w26.map(w => w.rooms>0 ? Math.min(100,(w.hv/w.rooms)*100) : 0);
   charts.ocup = new Chart(document.getElementById('chartOcup'), {
     type:'doughnut',
-    data:{ labels: weekLabels, datasets:[{ data: ocupData, backgroundColor:PALETTE }] },
+    data:{ labels: ocupLabels, datasets:[{ data: ocupData, backgroundColor:PALETTE }] },
     options:{responsive:true, plugins:{legend:{position:'bottom',labels:{boxWidth:9,font:{size:9}}}, tooltip:{callbacks:{label:(c)=>c.label+': '+c.raw.toFixed(1)+'%'}}}}
   });
 
   destroyChart('tarifa');
   charts.tarifa = new Chart(document.getElementById('chartTarifa'), {
     type:'line',
-    data:{ labels: weekLabels, datasets:[
-      {label:'2026', data:w26.map(w=>w.tarifaN?w.tarifaSum/w.tarifaN:0), borderColor:'#5b8fb9', backgroundColor:'rgba(91,143,185,.12)', fill:true, tension:.3},
-      ...(compare!=='none' ? [{label:'2025', data: w26.map(w=>{const f=w25.find(x=>x.semana===w.semana); return f&&f.tarifaN? f.tarifaSum/f.tarifaN : null;}), borderColor:'#a9c6dd', fill:false, tension:.3, borderDash:[5,3]}] : [])
+    data:{ labels, datasets:[
+      {label:'2026', data:tarifa26, borderColor:'#5b8fb9', backgroundColor:'rgba(91,143,185,.12)', fill:true, tension:.3},
+      ...(compare!=='none' ? [{label:'2025', data:tarifa25, borderColor:'#a9c6dd', fill:false, tension:.3, borderDash:[5,3]}] : [])
     ]},
     options:{responsive:true, plugins:{legend:{position:'bottom',labels:{boxWidth:10,font:{size:10}}}}, scales:{y:{ticks:{callback:v=>'$'+v.toFixed(0)}}}}
   });
