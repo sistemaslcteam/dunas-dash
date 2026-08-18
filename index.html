@@ -139,6 +139,9 @@ tbody tr:hover{background:var(--sandbg);}
     <label>Comparar contra</label>
     <select id="fCompareYear"><option value="2025">2025</option><option value="none">Sin comparativa</option></select>
     <div class="fsep"></div>
+    <label>Vista</label>
+    <select id="fGranularity"><option value="auto">Automática</option><option value="day">Diaria</option><option value="week">Semanal</option></select>
+    <div class="fsep"></div>
     <span class="chip" id="chipRango">—</span>
     <span class="chip" id="chipUpdate" style="margin-left:auto;background:#f0fdf4;color:#166534;border-color:#c8ecd4;">Última actualización: —</span>
   </div>
@@ -157,7 +160,7 @@ tbody tr:hover{background:var(--sandbg);}
       <canvas id="chartIngresos"></canvas>
     </div>
     <div class="cc">
-      <div class="cch"><div><div class="cct">Venta por segmento</div><div class="ccs">Últimas semanas del periodo</div></div></div>
+      <div class="cch"><div><div class="cct">Venta por segmento</div><div class="ccs">Comparativo por año — sólido 2026, contorno 2025</div></div></div>
       <canvas id="chartSegmentos"></canvas>
     </div>
   </div>
@@ -168,7 +171,7 @@ tbody tr:hover{background:var(--sandbg);}
       <canvas id="chartHV"></canvas>
     </div>
     <div class="cc">
-      <div class="cch"><div><div class="cct">Ocupación por semana</div><div class="ccs">% promedio</div></div></div>
+      <div class="cch"><div><div class="cct">Ocupación</div><div class="ccs">% comparativo por año</div></div></div>
       <canvas id="chartOcup"></canvas>
     </div>
     <div class="cc">
@@ -629,10 +632,11 @@ function findMatch25Daily(r26, raw25){
   return raw25.find(r=>r.fechaStr === (r26.fecha.getFullYear()-1)+r26.fechaStr.slice(4)) || null;
 }
 function renderCharts(data26, desde, hasta, compare){
-  const daily = data26.length <= 14; // rango corto → comparación día a día; si no, por semana
+  const granMode = document.getElementById('fGranularity').value;
+  const daily = granMode === 'day' ? true : granMode === 'week' ? false : data26.length <= 14;
   const raw25 = compare !== 'none' ? getYearData(currentProp,'2025') : [];
 
-  let labels, ing26, ing25, hv26, hv25arr, tarifa26, tarifa25, ocupData, ocupLabels, segLabels, segBuckets;
+  let labels, ing26, ing25, hv26, hv25arr, tarifa26, tarifa25, ocup26, ocup25, segLabels, segBuckets, segBuckets25;
 
   if (daily){
     const sorted = [...data26].sort((a,b)=>a.fecha-b.fecha);
@@ -640,33 +644,37 @@ function renderCharts(data26, desde, hasta, compare){
     ing26 = sorted.map(r=>r.totalGeneral);
     hv26 = sorted.map(r=>r.hv);
     tarifa26 = sorted.map(r=>r.tarifaPromedio);
+    ocup26 = sorted.map(r => r.totalHabDia>0 ? Math.min(100,(r.hv/r.totalHabDia)*100) : 0);
     const matches25 = sorted.map(r => compare!=='none' ? findMatch25Daily(r, raw25) : null);
     ing25 = matches25.map(m => m ? m.totalGeneral : null);
     hv25arr = matches25.map(m => m ? m.hv : null);
     tarifa25 = matches25.map(m => m ? m.tarifaPromedio : null);
-    ocupData = sorted.map(r => r.totalHabDia>0 ? Math.min(100,(r.hv/r.totalHabDia)*100) : 0);
-    ocupLabels = labels;
+    ocup25 = matches25.map(m => m && m.totalHabDia>0 ? Math.min(100,(m.hv/m.totalHabDia)*100) : null);
     segLabels = labels;
-    segBuckets = sorted;
+    segBuckets = sorted.map(r=>({seg:r.seg}));
+    segBuckets25 = matches25.map(m=>({seg: m ? m.seg : {}}));
   } else {
     const w26 = weeklyAgg(data26);
     labels = w26.map(w=>'Sem '+w.semana);
     ing26 = w26.map(w=>w.totalGeneral);
     hv26 = w26.map(w=>w.hv);
     tarifa26 = w26.map(w=>w.tarifaN?w.tarifaSum/w.tarifaN:0);
+    ocup26 = w26.map(w => w.rooms>0 ? Math.min(100,(w.hv/w.rooms)*100) : 0);
     let w25 = [];
     if (compare !== 'none'){
       const weeksSet = new Set(w26.map(w=>w.semana));
       w25 = weeklyAgg(raw25.filter(r=>weeksSet.has(r.semana)));
     }
-    const align25 = (key) => w26.map(w => { const f = w25.find(x=>x.semana===w.semana); return f ? f[key] : null; });
+    const findW25 = (w) => w25.find(x=>x.semana===w.semana) || null;
+    const align25 = (key) => w26.map(w => { const f = findW25(w); return f ? f[key] : null; });
     ing25 = align25('totalGeneral');
     hv25arr = align25('hv');
-    tarifa25 = w26.map(w=>{const f=w25.find(x=>x.semana===w.semana); return f&&f.tarifaN? f.tarifaSum/f.tarifaN : null;});
-    ocupData = w26.map(w => w.rooms>0 ? Math.min(100,(w.hv/w.rooms)*100) : 0);
-    ocupLabels = labels;
-    segLabels = w26.slice(-5).map(w=>'Sem '+w.semana);
-    segBuckets = w26.slice(-5);
+    tarifa25 = w26.map(w=>{const f=findW25(w); return f&&f.tarifaN? f.tarifaSum/f.tarifaN : null;});
+    ocup25 = w26.map(w=>{const f=findW25(w); return f&&f.rooms>0? Math.min(100,(f.hv/f.rooms)*100) : null;});
+    const last5 = w26.slice(-5);
+    segLabels = last5.map(w=>'Sem '+w.semana);
+    segBuckets = last5.map(w=>({seg:w.seg}));
+    segBuckets25 = last5.map(w=>{const f=findW25(w); return {seg: f ? f.seg : {}};});
   }
 
   destroyChart('ing');
@@ -681,12 +689,19 @@ function renderCharts(data26, desde, hasta, compare){
 
   const segDefs = segmentsFor(currentProp);
   destroyChart('seg');
+  const segDatasets = [];
+  segDefs.forEach(s=>{
+    segDatasets.push({ label:s.label+' 2026', data:segBuckets.map(b=>b.seg[s.key]||0), backgroundColor:colorFor(s.key,segDefs), stack:'y2026' });
+  });
+  if (compare !== 'none'){
+    segDefs.forEach(s=>{
+      segDatasets.push({ label:s.label+' 2025', data:segBuckets25.map(b=>b.seg[s.key]||0), backgroundColor:'rgba(0,0,0,0)', borderColor:colorFor(s.key,segDefs), borderWidth:1.5, borderDash:[3,2], stack:'y2025' });
+    });
+  }
   charts.seg = new Chart(document.getElementById('chartSegmentos'), {
     type:'bar',
-    data:{ labels: segLabels, datasets: segDefs.map(s=>({
-      label:s.label, data:segBuckets.map(b=>b.seg[s.key]||0), backgroundColor:colorFor(s.key,segDefs)
-    })) },
-    options:{indexAxis:'y', responsive:true, plugins:{legend:{position:'bottom',labels:{boxWidth:10,font:{size:9}}}}, scales:{x:{stacked:true,ticks:{callback:v=>'$'+(v/1000).toFixed(0)+'k'}},y:{stacked:true}}}
+    data:{ labels: segLabels, datasets: segDatasets },
+    options:{indexAxis:'y', responsive:true, plugins:{legend:{display:false}}, scales:{x:{stacked:true,ticks:{callback:v=>'$'+(v/1000).toFixed(0)+'k'}},y:{stacked:true}}}
   });
 
   destroyChart('hv');
@@ -701,9 +716,12 @@ function renderCharts(data26, desde, hasta, compare){
 
   destroyChart('ocup');
   charts.ocup = new Chart(document.getElementById('chartOcup'), {
-    type:'doughnut',
-    data:{ labels: ocupLabels, datasets:[{ data: ocupData, backgroundColor:PALETTE }] },
-    options:{responsive:true, plugins:{legend:{position:'bottom',labels:{boxWidth:9,font:{size:9}}}, tooltip:{callbacks:{label:(c)=>c.label+': '+c.raw.toFixed(1)+'%'}}}}
+    type:'bar',
+    data:{ labels, datasets:[
+      {label:'2026', data:ocup26, backgroundColor:'#8a5a2e'},
+      ...(compare!=='none' ? [{label:'2025', data:ocup25, backgroundColor:'#d9b48f'}] : [])
+    ]},
+    options:{responsive:true, plugins:{legend:{position:'bottom',labels:{boxWidth:9,font:{size:9}}}, tooltip:{callbacks:{label:(c)=>c.dataset.label+': '+(c.raw==null?'—':c.raw.toFixed(1)+'%')}}}, scales:{y:{ticks:{callback:v=>v+'%'}}}}
   });
 
   destroyChart('tarifa');
@@ -1201,6 +1219,7 @@ document.getElementById('btnRangeAnio').addEventListener('click', ()=>{
   renderAll();
 });
 document.getElementById('fCompareYear').addEventListener('change', renderAll);
+document.getElementById('fGranularity').addEventListener('change', renderAll);
 document.getElementById('tblSearch').addEventListener('input', ()=>renderTable(filterByDate(getYearData(currentProp,'2026'), document.getElementById('fDesde').value, document.getElementById('fHasta').value)));
 document.querySelectorAll('th[data-k]').forEach(th=>th.addEventListener('click', ()=>{
   const k = th.dataset.k;
