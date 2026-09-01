@@ -594,11 +594,11 @@ function getYearData(prop, yearKey){
   return combineGeneral(RAW['torre'+yearKey]||[], RAW['ovalo'+yearKey]||[]);
 }
 function segmentsFor(prop){
-  if (prop === 'torre') return CFG.segTorre;
-  if (prop === 'ovalo') return CFG.segOvalo;
-  // GENERAL: unión de ambos, sin duplicar keys repetidos (wistron, empresas, otas, consulado se comparten)
+  if (prop === 'torre') return CFG.segTorre2026;
+  if (prop === 'ovalo') return CFG.segOvalo2026;
+  // GENERAL: unión de ambos, sin duplicar keys repetidos (empresas, otas, consulado se comparten)
   const seen = new Set(); const out = [];
-  for (const s of [...CFG.segTorre, ...CFG.segOvalo]){
+  for (const s of [...CFG.segTorre2026, ...CFG.segOvalo2026]){
     if (!seen.has(s.key)){ seen.add(s.key); out.push(s); }
   }
   return out;
