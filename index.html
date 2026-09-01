@@ -429,12 +429,21 @@ function parseRows(rows, map, segments){
     const g = (key) => map[key] ? cleanNum(row[colIdx(map[key])]) : 0;
     const seg = {};
     for (const s of segments) seg[s.key] = (seg[s.key]||0) + cleanNum(row[colIdx(s.col)]);
-    const ventaNeta = g('venta_neta');
+    const segSum = Object.values(seg).reduce((a,b)=>a+b,0);
+    let ventaNeta = g('venta_neta');
+    let ventaNetaEstimada = false;
+    // Respaldo: si "VENTA NETA" viene en 0 pero los segmentos individuales (Wistron, Inventec, Empresas,
+    // Otas, Consulado) sí tienen datos capturados, se reconstruye sumando los que SÍ están —
+    // esto pasa cuando falta un segmento (ej. Otas/Booking-Expedia) y la fórmula del total se rompe.
+    if (ventaNeta === 0 && segSum > 0){
+      ventaNeta = segSum;
+      ventaNetaEstimada = true;
+    }
     const iva = g('iva'), ish = g('ish');
     let totalGeneral = g('total_general');
     let totalGeneralEstimado = false;
-    // Respaldo: si "TOTAL GENERAL" viene en 0 pero sí hay Venta Neta capturada (columna sin llenar/rota
-    // en el Sheet para ese día), se reconstruye como Venta Neta + IVA + ISH en vez de mostrar $0.
+    // Respaldo: si "TOTAL GENERAL" viene en 0 pero sí hay Venta Neta (real o reconstruida arriba),
+    // se reconstruye como Venta Neta + IVA + ISH en vez de mostrar $0.
     if (totalGeneral === 0 && ventaNeta > 0){
       totalGeneral = ventaNeta + iva + ish;
       totalGeneralEstimado = true;
@@ -445,7 +454,7 @@ function parseRows(rows, map, segments){
       hv: g('hv'), adultos: g('adultos'), ninos: g('ninos'),
       seg,
       tarifaPromedio: g('tarifa_promedio'),
-      ventaNeta, totalGeneral, totalGeneralEstimado, iva, ish,
+      ventaNeta, ventaNetaEstimada, totalGeneral, totalGeneralEstimado, iva, ish,
       efectivo: g('efectivo'), tarjeta: g('tarjeta'), transferencia: g('transferencia'), cxc: g('cxc')
     });
   }
@@ -511,6 +520,7 @@ function combineGeneral(recA, recB){
       ex.hv += r.hv; ex.adultos += r.adultos; ex.ninos += r.ninos; ex.totalHabDia += r.totalHabDia;
       for (const k in r.seg) ex.seg[k] = (ex.seg[k]||0) + r.seg[k];
       ex.ventaNeta += r.ventaNeta; ex.totalGeneral += r.totalGeneral;
+      ex.ventaNetaEstimada = ex.ventaNetaEstimada || r.ventaNetaEstimada;
       ex.totalGeneralEstimado = ex.totalGeneralEstimado || r.totalGeneralEstimado;
       ex.efectivo += r.efectivo; ex.tarjeta += r.tarjeta; ex.transferencia += r.transferencia; ex.cxc += r.cxc;
       ex.tarifaPromedio = ex.hv>0 ? (ex.ventaNeta/ex.hv) : 0;
@@ -585,9 +595,13 @@ function renderAll(){
   document.getElementById('hTotalHab').textContent = Math.round(roomsSum).toLocaleString('es-MX');
   const totalGen = data26.reduce((s,r)=>s+r.totalGeneral,0);
   const diasEstimados = data26.filter(r=>r.totalGeneralEstimado).length;
+  const diasVentaEstimada = data26.filter(r=>r.ventaNetaEstimada).length;
   document.getElementById('hTotalGen').textContent = fmtMoney(totalGen) + (diasEstimados>0?' ~':'');
   document.getElementById('hTotalGen').title = diasEstimados>0 ? `${diasEstimados} día(s) del periodo no tenían "TOTAL GENERAL" capturado en el Sheet; se reconstruyó como Venta Neta + IVA + ISH` : '';
-  document.getElementById('chipRango').textContent = desde && hasta ? `${desde} → ${hasta} (${days} días)` + (diasEstimados>0?` · ⚠ ${diasEstimados} día(s) con Total General estimado`:'') : 'Selecciona un rango';
+  let rangoTxt = desde && hasta ? `${desde} → ${hasta} (${days} días)` : 'Selecciona un rango';
+  if (diasVentaEstimada>0) rangoTxt += ` · ⚠ ${diasVentaEstimada} día(s) con Venta Neta reconstruida por segmentos (falta algún segmento como Otas/Booking en el Sheet)`;
+  else if (diasEstimados>0) rangoTxt += ` · ⚠ ${diasEstimados} día(s) con Total General estimado`;
+  document.getElementById('chipRango').textContent = rangoTxt;
 
   const ventaProm = totalGen/days;
   const ventaNeta = data26.reduce((s,r)=>s+r.ventaNeta,0);
