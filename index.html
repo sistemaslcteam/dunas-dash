@@ -278,10 +278,15 @@ tbody tr:hover{background:var(--sandbg);}
     </div>
     <label>Auto-actualizar cada (minutos, 0 = desactivado)</label>
     <input id="cfgAutoRefresh" type="number" min="0">
-    <label>Mapeo de columnas — Torre (avanzado, JSON de letras de columna)</label>
-    <textarea id="cfgMapTorre"></textarea>
-    <label>Mapeo de columnas — Óvalo (avanzado, JSON de letras de columna)</label>
-    <textarea id="cfgMapOvalo"></textarea>
+    <p style="margin-top:14px;">Mapeo de columnas (avanzado). Cada campo es un JSON con <code>{"map": {...}, "segments": [...]}</code>. Solo edítalo si tu Sheet cambió de estructura otra vez y algún KPI deja de coincidir.</p>
+    <label>Torre Dunas 2026</label>
+    <textarea id="cfgMapTorre2026"></textarea>
+    <label>Torre Dunas 2025</label>
+    <textarea id="cfgMapTorre2025"></textarea>
+    <label>Óvalo 2026</label>
+    <textarea id="cfgMapOvalo2026"></textarea>
+    <label>Óvalo 2025</label>
+    <textarea id="cfgMapOvalo2025"></textarea>
     <div class="mda">
       <button class="btn bo" onclick="closeModal('modalSettings')">Cerrar</button>
       <button class="btn bg" id="btnSaveSettings">Guardar y recargar</button>
@@ -293,28 +298,79 @@ tbody tr:hover{background:var(--sandbg);}
 
 <script>
 /* ================= CONFIG ================= */
-// Torre Dunas (DIRECTOR 2026 / DIRECTOR 2025) — estructura confirmada
-const TORRE_COLMAP = {
+// Torre Dunas 2026 (DIRECTOR 2026) — estructura ACTUAL confirmada (con Booking/Expedia separados)
+const TORRE_COLMAP_2026 = {
+  semana:'B', fecha:'C', totalHabDia:'D', hv:'E', adultos:'L', ninos:'M',
+  tarifa_promedio:'AT',
+  venta_neta:'BL', iva:'BM', ish:'BO', total_general:'BQ',
+  miscelaneos:'BR', abono_cuenta:'BS', efectivo:'BT', cxc:'BZ', tarjeta:'CA', terminal:'CB', transferencia:'CD', anticipos:'CE'
+};
+const TORRE_SEGMENTS_2026 = [
+  {key:'otros', label:'Otros', col:'AU'},
+  {key:'wistronH', label:'Wistron H', col:'AV'},
+  {key:'wistron2', label:'Wistron 2', col:'AW'},
+  {key:'inventec', label:'Inventec', col:'AX'},
+  {key:'iec', label:'IEC', col:'AY'},
+  {key:'dazhang', label:'Dazhang', col:'AZ'},
+  {key:'pce', label:'PCE', col:'BA'},
+  {key:'empresas', label:'Empresas', col:'BB'},
+  {key:'olague', label:'Olague', col:'BC'},
+  {key:'setteppi', label:'Setteppi', col:'BD'},
+  {key:'otas', label:'Otas', col:'BE'},
+  {key:'booking', label:'Booking', col:'BF'},
+  {key:'expedia', label:'Expedia', col:'BG'},
+  {key:'grupoangel', label:'Grupo Angel', col:'BH'},
+  {key:'consulado', label:'Consulado', col:'BI'}
+];
+// Torre Dunas 2025 (DIRECTOR 2025) — se quedó en el formato anterior (sin Booking/Expedia separados)
+const TORRE_COLMAP_2025 = {
   semana:'B', fecha:'C', totalHabDia:'D', hv:'E', adultos:'L', ninos:'M',
   tarifa_promedio:'AP',
   venta_neta:'BF', iva:'BG', ish:'BI', total_general:'BK',
-  miscelaneos:'BL', abono_cuenta:'BM', efectivo:'BN', cxc:'BT', tarjeta:'BU', terminal:'BV', transferencia:'BX', anticipos:'BY'
+  abono_cuenta:'BL', efectivo:'BM', terminal:'BO', tarjeta:'BQ', anticipos:'BR', cxc:'BT', transferencia:'BV'
 };
-const TORRE_SEGMENTS = [
-  {key:'wistron', label:'Wistron', col:'AS'},
+const TORRE_SEGMENTS_2025 = [
+  {key:'otros', label:'Otros', col:'AQ'},
+  {key:'wistronH', label:'Wistron H', col:'AR'},
+  {key:'wistron2', label:'Wistron 2', col:'AS'},
   {key:'inventec', label:'Inventec', col:'AT'},
+  {key:'iec', label:'IEC', col:'AU'},
+  {key:'dazhang', label:'Dazhang', col:'AV'},
+  {key:'pce', label:'PCE', col:'AW'},
   {key:'empresas', label:'Empresas', col:'AX'},
+  {key:'olague', label:'Olague', col:'AY'},
+  {key:'setteppi', label:'Setteppi', col:'AZ'},
   {key:'otas', label:'Otas', col:'BA'},
+  {key:'grupoangel', label:'Grupo Angel', col:'BB'},
   {key:'consulado', label:'Consulado', col:'BC'}
 ];
-// Óvalo (OVALO 2026 / VENTAS OVALO 2025) — estructura confirmada desde tu Excel
-const OVALO_COLMAP = {
+// Óvalo 2026 (OVALO 2026) — estructura ACTUAL confirmada (con Booking/Expedia separados)
+const OVALO_COLMAP_2026 = {
+  semana:'B', fecha:'C', totalHabDia:'D', hv:'E', adultos:'L', ninos:'M',
+  tarifa_promedio:'AH',
+  venta_neta:'AS', iva:'AT', ish:'AV', total_general:'AX',
+  miscelaneos:'AY', abono_cuenta:'AZ', efectivo:'BA', cxc:'BG', tarjeta:'BH', terminal:'BI', transferencia:'BK', anticipos:'BL'
+};
+const OVALO_SEGMENTS_2026 = [
+  {key:'otros', label:'Otros', col:'AI'},
+  {key:'empresas', label:'Empresas', col:'AJ'},
+  {key:'olague', label:'Olague', col:'AK'},
+  {key:'wistron', label:'Wistron', col:'AL'},
+  {key:'consulado', label:'Consulado', col:'AM'},
+  {key:'otas', label:'Otas', col:'AN'},
+  {key:'booking', label:'Booking', col:'AO'},
+  {key:'expedia', label:'Expedia', col:'AP'},
+  {key:'setteppi', label:'Setteppi', col:'AQ'},
+  {key:'grupoangel', label:'Grupo Angel', col:'AR'}
+];
+// Óvalo 2025 (VENTAS OVALO 2025) — formato anterior, sin cambios
+const OVALO_COLMAP_2025 = {
   semana:'B', fecha:'C', totalHabDia:'D', hv:'E', adultos:'L', ninos:'M',
   tarifa_promedio:'AD',
   venta_neta:'AM', iva:'AN', ish:'AP', total_general:'AR',
   miscelaneos:'AS', abono_cuenta:'AT', efectivo:'AU', cxc:'BA', tarjeta:'BB', terminal:'BC', transferencia:'BE', anticipos:'BF'
 };
-const OVALO_SEGMENTS = [
+const OVALO_SEGMENTS_2025 = [
   {key:'otros', label:'Otros', col:'AE'},
   {key:'empresas', label:'Empresas', col:'AF'},
   {key:'olague', label:'Olague', col:'AG'},
@@ -329,10 +385,12 @@ const DEFAULTS = {
   tabs: { torre2026:'DIRECTOR 2026', torre2025:'DIRECTOR 2025', ovalo2026:'OVALO 2026', ovalo2025:'VENTAS OVALO 2025', pptoDunas:'PPTO DUNAS 2026', pptoOvalo:'PPTO OVALO 2026' },
   roomsFallback: 100, // solo se usa si el Sheet no trae capacidad diaria (columna D)
   autoRefreshMin: 10,
-  mapTorre: TORRE_COLMAP, mapOvalo: OVALO_COLMAP,
-  segTorre: TORRE_SEGMENTS, segOvalo: OVALO_SEGMENTS
+  mapTorre2026: TORRE_COLMAP_2026, segTorre2026: TORRE_SEGMENTS_2026,
+  mapTorre2025: TORRE_COLMAP_2025, segTorre2025: TORRE_SEGMENTS_2025,
+  mapOvalo2026: OVALO_COLMAP_2026, segOvalo2026: OVALO_SEGMENTS_2026,
+  mapOvalo2025: OVALO_COLMAP_2025, segOvalo2025: OVALO_SEGMENTS_2025
 };
-const PALETTE = ['#8a5a2e','#c9a06f','#d9b48f','#5b8fb9','#2ecc71','#f59e0b','#ec4899','#8e6db5','#4b5563','#0ea5e9'];
+const PALETTE = ['#8a5a2e','#c9a06f','#d9b48f','#5b8fb9','#2ecc71','#f59e0b','#ec4899','#8e6db5','#4b5563','#0ea5e9','#a3785c','#7fb069','#e0777d','#6c757d','#c084fc'];
 function colorFor(key, list){ const i = list.findIndex(s=>s.key===key); return PALETTE[i % PALETTE.length]; }
 
 const MESES = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE'];
@@ -472,10 +530,10 @@ async function loadAll(){
       fetchTab(CFG.sheetId, CFG.tabs.ovalo2026),
       fetchTab(CFG.sheetId, CFG.tabs.ovalo2025)
     ]);
-    RAW.torre2026 = parseRows(t26, CFG.mapTorre, CFG.segTorre);
-    RAW.torre2025 = parseRows(t25, CFG.mapTorre, CFG.segTorre);
-    RAW.ovalo2026 = parseRows(o26, CFG.mapOvalo, CFG.segOvalo);
-    RAW.ovalo2025 = parseRows(o25, CFG.mapOvalo, CFG.segOvalo);
+    RAW.torre2026 = parseRows(t26, CFG.mapTorre2026, CFG.segTorre2026);
+    RAW.torre2025 = parseRows(t25, CFG.mapTorre2025, CFG.segTorre2025);
+    RAW.ovalo2026 = parseRows(o26, CFG.mapOvalo2026, CFG.segOvalo2026);
+    RAW.ovalo2025 = parseRows(o25, CFG.mapOvalo2025, CFG.segOvalo2025);
     setStatus('ok', 'Conectado');
     document.getElementById('chipUpdate').textContent = 'Última actualización: ' + new Date().toLocaleTimeString('es-MX');
     document.getElementById('loadingScreen').classList.add('hidden');
@@ -1287,8 +1345,10 @@ function fillSettingsForm(){
   document.getElementById('cfgPptoOvalo').value = CFG.tabs.pptoOvalo;
   document.getElementById('cfgRoomsTorre').value = CFG.roomsFallback;
   document.getElementById('cfgAutoRefresh').value = CFG.autoRefreshMin;
-  document.getElementById('cfgMapTorre').value = JSON.stringify(CFG.mapTorre, null, 1);
-  document.getElementById('cfgMapOvalo').value = JSON.stringify(CFG.mapOvalo, null, 1);
+  document.getElementById('cfgMapTorre2026').value = JSON.stringify({map:CFG.mapTorre2026, segments:CFG.segTorre2026}, null, 1);
+  document.getElementById('cfgMapTorre2025').value = JSON.stringify({map:CFG.mapTorre2025, segments:CFG.segTorre2025}, null, 1);
+  document.getElementById('cfgMapOvalo2026').value = JSON.stringify({map:CFG.mapOvalo2026, segments:CFG.segOvalo2026}, null, 1);
+  document.getElementById('cfgMapOvalo2025').value = JSON.stringify({map:CFG.mapOvalo2025, segments:CFG.segOvalo2025}, null, 1);
 }
 document.getElementById('btnSaveSettings').addEventListener('click', async ()=>{
   try{
@@ -1301,8 +1361,14 @@ document.getElementById('btnSaveSettings').addEventListener('click', async ()=>{
     CFG.tabs.pptoOvalo = document.getElementById('cfgPptoOvalo').value.trim();
     CFG.roomsFallback = parseInt(document.getElementById('cfgRoomsTorre').value)||CFG.roomsFallback;
     CFG.autoRefreshMin = parseInt(document.getElementById('cfgAutoRefresh').value)||0;
-    CFG.mapTorre = JSON.parse(document.getElementById('cfgMapTorre').value);
-    CFG.mapOvalo = JSON.parse(document.getElementById('cfgMapOvalo').value);
+    const t26 = JSON.parse(document.getElementById('cfgMapTorre2026').value);
+    const t25 = JSON.parse(document.getElementById('cfgMapTorre2025').value);
+    const o26 = JSON.parse(document.getElementById('cfgMapOvalo2026').value);
+    const o25 = JSON.parse(document.getElementById('cfgMapOvalo2025').value);
+    CFG.mapTorre2026 = t26.map; CFG.segTorre2026 = t26.segments;
+    CFG.mapTorre2025 = t25.map; CFG.segTorre2025 = t25.segments;
+    CFG.mapOvalo2026 = o26.map; CFG.segOvalo2026 = o26.segments;
+    CFG.mapOvalo2025 = o25.map; CFG.segOvalo2025 = o25.segments;
     await saveSettings(CFG);
     closeModal('modalSettings');
     toast('Configuración guardada');
