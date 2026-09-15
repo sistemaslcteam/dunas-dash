@@ -570,9 +570,12 @@ function setStatus(kind, text){
 }
 
 /* ================= AGGREGATION ================= */
+function cloneRecord(r){
+  return { ...r, fecha: new Date(r.fecha), seg: { ...r.seg } };
+}
 function combineGeneral(recA, recB){
   const map = new Map();
-  for (const r of recA) map.set(r.fechaStr, JSON.parse(JSON.stringify(r)));
+  for (const r of recA) map.set(r.fechaStr, cloneRecord(r));
   for (const r of recB){
     if (map.has(r.fechaStr)){
       const ex = map.get(r.fechaStr);
@@ -584,7 +587,7 @@ function combineGeneral(recA, recB){
       ex.efectivo += r.efectivo; ex.tarjeta += r.tarjeta; ex.transferencia += r.transferencia; ex.cxc += r.cxc;
       ex.tarifaPromedio = ex.hv>0 ? (ex.ventaNeta/ex.hv) : 0;
     } else {
-      map.set(r.fechaStr, JSON.parse(JSON.stringify(r)));
+      map.set(r.fechaStr, cloneRecord(r));
     }
   }
   return Array.from(map.values()).sort((a,b)=>a.fecha-b.fecha);
