@@ -92,6 +92,18 @@ tbody tr:hover{background:var(--sandbg);}
 .toast{position:fixed;bottom:20px;right:20px;background:var(--ink);color:#fff;padding:10px 16px;border-radius:8px;font-size:11.5px;z-index:300;transform:translateY(60px);opacity:0;transition:.25s;}
 .toast.show{transform:translateY(0);opacity:1;}
 .two-col{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.cgrid-eq{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;}
+@media(max-width:1050px){.cgrid-eq{grid-template-columns:1fr;}}
+.rk-top{background:#e8f7ee;color:#166534;font-weight:700;text-align:center;}
+.rk-low{background:#fdecec;color:#b42318;font-weight:700;text-align:center;}
+.rk-mid{text-align:center;}
+tr.own-row td{background:#fbf3e8;font-weight:700;}
+tr.tot-row td{background:#1e2530;color:#fff;font-weight:800;}
+.neg{color:#e74c3c;font-weight:700;}
+.msnote{font-size:11px;border-radius:8px;padding:8px 12px;margin-bottom:12px;}
+.msnote.info{color:#1e4a7a;background:#eef5fc;border:1px solid #c9ddf3;}
+.msnote.err{color:#8a2a2a;background:#fff5f5;border:1px solid #f3c6c6;}
+.fine{font-size:10px;color:var(--ink2);padding:6px 4px 14px;line-height:1.5;}
 @media print{.hdr,.fbar,.iconbtn{display:none!important;}}
 </style>
 </head>
@@ -112,6 +124,7 @@ tbody tr:hover{background:var(--sandbg);}
   <div class="hdr-tabs" id="secTabs">
     <button class="htab on" data-sec="ventas">VENTAS</button>
     <button class="htab" data-sec="resultados">ESTADO DE RESULTADOS</button>
+    <button class="htab" data-sec="market">MARKET SHARE</button>
   </div>
   <div class="hdr-tabs" id="propTabs">
     <button class="htab on" data-prop="torre">TORRE DUNAS</button>
@@ -122,7 +135,7 @@ tbody tr:hover{background:var(--sandbg);}
     <div class="status"><span class="dot load" id="statusDot"></span><span id="statusText">cargando…</span></div>
     <button class="iconbtn" id="btnRefresh" title="Actualizar ahora">⟳</button>
     <button class="iconbtn" id="btnSettings" title="Configuración">⚙</button>
-    <span style="font-size:9px;color:#c3c8ce;" title="Versión de este archivo, para confirmar que el sitio publicado está actualizado">v2026.09.01-4</span>
+    <span style="font-size:9px;color:#c3c8ce;" title="Versión de este archivo, para confirmar que el sitio publicado está actualizado">v2026.10.05-1</span>
   </div>
 </div>
 
@@ -258,6 +271,72 @@ tbody tr:hover{background:var(--sandbg);}
       </div>
     </div>
   </div><!-- /resultadosSection -->
+
+  <div id="marketSection" style="display:none;">
+    <div class="fbar">
+      <label>Fecha</label><input type="date" id="msFecha">
+      <button class="btn bo" id="msUltimo" style="padding:5px 10px;font-size:10.5px;">Último día capturado</button>
+      <div class="fsep"></div>
+      <label>Periodo</label>
+      <select id="msPeriodo"><option value="dia">Día</option><option value="mtd">Mes a la fecha</option><option value="ytd">Año a la fecha</option></select>
+      <label>Hoteles sin reporte</label>
+      <select id="msSinReporte"><option value="incluir">Incluir en totales (como el reporte actual)</option><option value="excluir">Excluir de totales</option></select>
+      <div class="fsep"></div>
+      <a id="msSheetLink" href="#" target="_blank" class="chip" style="text-decoration:none;">🔗 Abrir Google Sheet en línea</a>
+      <span class="chip" id="msChip" style="margin-left:auto;background:#f0fdf4;color:#166534;border-color:#c8ecd4;">—</span>
+    </div>
+    <div id="msNote" class="msnote info" style="display:none;"></div>
+
+    <div class="krow">
+      <div class="kpi k1"><div class="kv" id="msKOcup">—</div><div class="kl">Ocupación Grupo Dunas</div><div class="ksub" id="msKOcupSub"></div></div>
+      <div class="kpi k2"><div class="kv" id="msKAdr">—</div><div class="kl">Tarifa promedio (ADR)</div><div class="ksub" id="msKAdrSub"></div></div>
+      <div class="kpi k3"><div class="kv" id="msKRevpar">—</div><div class="kl">RevPAR</div><div class="ksub" id="msKRevparSub"></div></div>
+      <div class="kpi k4"><div class="kv" id="msKShare">—</div><div class="kl">Participación de mercado</div><div class="ksub" id="msKShareSub"></div></div>
+      <div class="kpi k5"><div class="kv" id="msKRgi">—</div><div class="kl">Índice RGI</div><div class="ksub" id="msKRgiSub"></div></div>
+    </div>
+
+    <div class="cgrid-eq">
+      <div class="cc">
+        <div class="cch"><div><div class="cct">Participación de mercado por hotel</div><div class="ccs">% de inventario vs % de cuartos ocupados</div></div></div>
+        <canvas id="chartMsShare"></canvas>
+      </div>
+      <div class="cc">
+        <div class="cch"><div><div class="cct">Tarifa vs ocupación</div><div class="ccs">Tamaño = ingresos · café = Grupo Dunas</div></div></div>
+        <canvas id="chartMsScatter"></canvas>
+      </div>
+    </div>
+
+    <div class="tw" style="margin-bottom:12px;">
+      <div class="tbar"><div class="cct" id="msTablaTitulo">Ranking competitivo</div></div>
+      <div class="ts">
+        <table style="min-width:1150px;">
+          <thead><tr>
+            <th>Hotel</th><th># Hab</th><th>% Inventario</th><th>Cuartos ocupados</th><th>% Ocup.</th><th>% Cuartos ocup.</th><th>Dif. porción</th><th>Tarifa prom.</th><th>Ingresos hab.</th>
+            <th>Pos. % Ocup</th><th>Pos. Porción</th><th>Pos. TFA</th><th>Pos. IH</th><th>Pos. RevPAR</th><th>RevPAR</th>
+          </tr></thead>
+          <tbody id="msBody"><tr><td colspan="15" class="em">Cargando…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="fine">MPI = ocupación del Grupo Dunas ÷ ocupación del mercado × 100 · ARI = tarifa del grupo ÷ tarifa del mercado × 100 · RGI = RevPAR del grupo ÷ RevPAR del mercado × 100 (arriba de 100 = ganando mercado). El mercado incluye a los hoteles propios. Dif. porción = % de cuartos ocupados − % de inventario.</div>
+
+    <div class="cgrid-eq">
+      <div class="cc">
+        <div class="cch"><div><div class="cct">Tendencia: Grupo Dunas vs mercado</div><div class="ccs" id="msTrendSub">—</div></div>
+          <select id="msMetrica" style="padding:5px 8px;border:1.5px solid var(--line);border-radius:7px;font-size:11px;"><option value="ocup">Ocupación</option><option value="adr">Tarifa promedio</option><option value="revpar">RevPAR</option></select></div>
+        <canvas id="chartMsTrend"></canvas>
+      </div>
+      <div class="tw">
+        <div class="tbar"><div class="cct">Grupo Dunas — Día · Mes a la fecha · Año a la fecha</div></div>
+        <div class="ts">
+          <table style="min-width:620px;">
+            <thead><tr><th>Periodo</th><th>% Ocup.</th><th>Tarifa prom.</th><th>RevPAR</th><th>Part. mercado</th><th>MPI</th><th>ARI</th><th>RGI</th><th>Ingresos</th></tr></thead>
+            <tbody id="msResumenBody"><tr><td colspan="9" class="em">Cargando…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div><!-- /marketSection -->
 </div>
 
 <div class="ov" id="modalSettings">
@@ -273,6 +352,10 @@ tbody tr:hover{background:var(--sandbg);}
       <div><label>Pestaña Óvalo 2025</label><input id="cfgOvalo2025"></div>
       <div><label>Pestaña PPTO Torre Dunas</label><input id="cfgPptoDunas"></div>
       <div><label>Pestaña PPTO Óvalo</label><input id="cfgPptoOvalo"></div>
+      <div><label>Pestaña Market Share</label><input id="cfgMarket"></div>
+      <div><label>Nombre de Torre en Market Share</label><input id="cfgMsTorre"></div>
+      <div><label>Nombre de Óvalo en Market Share</label><input id="cfgMsOvalo"></div>
+      <div><label>Dunas y Óvalo automáticos</label><select id="cfgMsAuto"><option value="1">Sí: tomarlos del dashboard si no están capturados</option><option value="0">No: usar solo lo capturado</option></select></div>
     </div>
     <div class="two-col">
       <div><label>Habitaciones (respaldo, solo si el Sheet no trae la columna "TOTAL HABITACIONES")</label><input id="cfgRoomsTorre" type="number"></div>
@@ -383,7 +466,8 @@ const OVALO_SEGMENTS_2025 = [
 ];
 const DEFAULTS = {
   sheetId: '1ubmbP5da8--qiYNaQFC60MutkpeaABC80pjzCwXiEUw',
-  tabs: { torre2026:'DIRECTOR 2026', torre2025:'DIRECTOR 2025', ovalo2026:'OVALO 2026', ovalo2025:'VENTAS OVALO 2025', pptoDunas:'PPTO DUNAS 2026', pptoOvalo:'PPTO OVALO 2026' },
+  tabs: { torre2026:'DIRECTOR 2026', torre2025:'DIRECTOR 2025', ovalo2026:'OVALO 2026', ovalo2025:'VENTAS OVALO 2025', pptoDunas:'PPTO DUNAS 2026', pptoOvalo:'PPTO OVALO 2026', market:'MARKET SHARE' },
+  msTorre:'Dunas', msOvalo:'Dunas Óvalo', msAuto:true,
   roomsFallback: 100, // solo se usa si el Sheet no trae capacidad diaria (columna D)
   autoRefreshMin: 10,
   mapTorre2026: TORRE_COLMAP_2026, segTorre2026: TORRE_SEGMENTS_2026,
@@ -419,9 +503,9 @@ function cleanNum(v){
 function parseDateFlexible(s){
   if (!s) return null;
   s = String(s).trim();
-  let m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  let m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
   if (m){
-    const d = parseInt(m[1],10), mo = parseInt(m[2],10), y = parseInt(m[3],10);
+    const d = parseInt(m[1],10), mo = parseInt(m[2],10); let y = parseInt(m[3],10); if (m[3].length===2) y += 2000;
     return new Date(y, mo-1, d);
   }
   m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
@@ -440,7 +524,7 @@ function closeModal(id){ document.getElementById(id).classList.remove('on'); }
 async function loadSettings(){
   try{
     const r = await window.storage.get('dunas_settings');
-    if (r && r.value) return Object.assign({}, DEFAULTS, JSON.parse(r.value));
+    if (r && r.value){ const st = JSON.parse(r.value); const cfg = Object.assign({}, DEFAULTS, st); cfg.tabs = Object.assign({}, DEFAULTS.tabs, st.tabs||{}); return cfg; }
   }catch(e){}
   return JSON.parse(JSON.stringify(DEFAULTS));
 }
@@ -1268,6 +1352,297 @@ function renderPartidas(prop, mesSel){
   </tr>`).join('');
 }
 
+/* ================= MARKET SHARE ================= */
+const MS = { rows:[], loaded:false, error:null };
+function msNorm(s){ return String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,''); }
+function ymd(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+
+function parseMarketRows(csv){
+  let hdrIdx = -1, c = {};
+  for (let r=0; r<Math.min(csv.length,15); r++){
+    const hdr = (csv[r]||[]).map(msNorm);
+    const iF = hdr.indexOf('fecha'), iH = hdr.indexOf('hotel');
+    if (iF>=0 && iH>=0){
+      hdrIdx = r;
+      c = { fecha:iF, hotel:iH,
+        hab: hdr.findIndex(x=>/^(habitaciones|cuartosdisponibles|disponibles|numerodehab)/.test(x)),
+        occ: hdr.findIndex(x=>/ocupad/.test(x)),
+        rev: hdr.findIndex(x=>/^ingreso/.test(x)) };
+      break;
+    }
+  }
+  if (hdrIdx<0 || c.hab<0 || c.occ<0 || c.rev<0){
+    return { rows:[], error:'No encontré las columnas Fecha, Hotel, Habitaciones_Disponibles, Cuartos_Ocupados e Ingresos en la pestaña "'+CFG.tabs.market+'". Revisa que la pestaña exista con ese nombre exacto.' };
+  }
+  const map = new Map();
+  for (let r=hdrIdx+1; r<csv.length; r++){
+    const row = csv[r] || [];
+    const d = parseDateFlexible(row[c.fecha]);
+    const hotel = String(row[c.hotel]||'').trim();
+    if (!d || isNaN(d.getTime()) || !hotel) continue;
+    if (d.getFullYear()<2015 || d.getFullYear()>2035) continue;
+    const rec = { fecha:d, fechaStr:ymd(d), hotel, norm:msNorm(hotel), hab:cleanNum(row[c.hab]), occ:cleanNum(row[c.occ]), rev:cleanNum(row[c.rev]), auto:false };
+    map.set(rec.fechaStr+'|'+rec.norm, rec); // si un día se captura dos veces, gana la última fila
+  }
+  return { rows:[...map.values()], error:null };
+}
+async function loadMarket(){
+  try{
+    const csv = await fetchTab(CFG.sheetId, CFG.tabs.market);
+    const p = parseMarketRows(csv);
+    MS.rows = p.rows; MS.error = p.error;
+    if (!p.error && !p.rows.length) MS.error = 'La pestaña "'+CFG.tabs.market+'" existe pero todavía no tiene filas de datos.';
+  }catch(err){
+    MS.rows = []; MS.error = 'No se pudo leer la pestaña "'+CFG.tabs.market+'": '+err.message;
+  }
+  MS.loaded = true;
+  initMarketFilters();
+  renderMarket();
+}
+function msOwnSet(){ return new Set([msNorm(CFG.msTorre), msNorm(CFG.msOvalo)].filter(Boolean)); }
+
+// Filas capturadas + (opcional) Dunas y Óvalo tomados de las pestañas Director/Óvalo en los días que ya tienen captura de la competencia
+function msAllRows(){
+  const rows = MS.rows.slice();
+  if (!CFG.msAuto) return rows;
+  const dates = new Set(MS.rows.map(r=>r.fechaStr));
+  const have = new Set(rows.map(r=>r.fechaStr+'|'+r.norm));
+  const srcs = [[CFG.msTorre, RAW.torre2026],[CFG.msOvalo, RAW.ovalo2026]];
+  for (const [name, recs] of srcs){
+    if (!name || !recs) continue;
+    const norm = msNorm(name);
+    for (const r of recs){
+      const k = ymd(r.fecha);
+      if (!dates.has(k) || have.has(k+'|'+norm) || !(r.totalHabDia>0)) continue;
+      rows.push({ fecha:r.fecha, fechaStr:k, hotel:name, norm, hab:r.totalHabDia, occ:r.hv, rev:r.ventaNeta, auto:true });
+    }
+  }
+  return rows;
+}
+function msRange(fechaStr, periodo){
+  const [y,m] = fechaStr.split('-');
+  if (periodo==='dia') return [fechaStr, fechaStr];
+  if (periodo==='mtd') return [y+'-'+m+'-01', fechaStr];
+  return [y+'-01-01', fechaStr];
+}
+function msAgg(rows){
+  const own = msOwnSet(); const m = new Map();
+  for (const r of rows){
+    const o = m.get(r.norm) || { hotel:r.hotel, norm:r.norm, hab:0, occ:0, rev:0, own:own.has(r.norm), days:new Set() };
+    o.hab += r.hab; o.occ += r.occ; o.rev += r.rev; o.days.add(r.fechaStr);
+    m.set(r.norm, o);
+  }
+  const arr = [...m.values()];
+  const ownOrder = [msNorm(CFG.msTorre), msNorm(CFG.msOvalo)];
+  arr.sort((a,b)=>{
+    const ia = ownOrder.indexOf(a.norm), ib = ownOrder.indexOf(b.norm);
+    if (ia>=0 && ib>=0) return ia-ib;
+    if (ia>=0) return -1; if (ib>=0) return 1;
+    return 0; // el resto conserva el orden de captura
+  });
+  return arr;
+}
+function msRank(arr, key, rk){
+  arr.forEach(h=>h[rk]=null);
+  const ok = arr.filter(h=>h.hasData).sort((a,b)=>b[key]-a[key]);
+  ok.forEach((h,i)=>{ h[rk] = (i>0 && Math.abs(ok[i][key]-ok[i-1][key])<1e-9) ? ok[i-1][rk] : i+1; });
+}
+function msMetrics(o){
+  o.occPct = o.hab>0 ? o.occ/o.hab*100 : 0;
+  o.adr = o.occ>0 ? o.rev/o.occ : 0;
+  o.revpar = o.hab>0 ? o.rev/o.hab : 0;
+  return o;
+}
+function msCompute(list, excluir){
+  let arr = list.map(h=>({...h}));
+  arr.forEach(h=>{ h.hasData = h.occ>0 || h.rev>0; });
+  if (excluir) arr = arr.filter(h=>h.hasData);
+  const tot = msMetrics({ hab:arr.reduce((s,h)=>s+h.hab,0), occ:arr.reduce((s,h)=>s+h.occ,0), rev:arr.reduce((s,h)=>s+h.rev,0) });
+  arr.forEach(h=>{
+    msMetrics(h);
+    h.shareHab = tot.hab>0 ? h.hab/tot.hab*100 : 0;
+    h.shareOcc = tot.occ>0 ? h.occ/tot.occ*100 : 0;
+    h.dif = h.shareOcc - h.shareHab;
+  });
+  msRank(arr,'occPct','rkOcc'); msRank(arr,'shareOcc','rkShare'); msRank(arr,'adr','rkAdr'); msRank(arr,'rev','rkRev'); msRank(arr,'revpar','rkRevpar');
+  const ownArr = arr.filter(h=>h.own);
+  let grp = null;
+  if (ownArr.length){
+    grp = msMetrics({ hab:ownArr.reduce((s,h)=>s+h.hab,0), occ:ownArr.reduce((s,h)=>s+h.occ,0), rev:ownArr.reduce((s,h)=>s+h.rev,0) });
+    grp.shareHab = tot.hab>0 ? grp.hab/tot.hab*100 : 0;
+    grp.shareOcc = tot.occ>0 ? grp.occ/tot.occ*100 : 0;
+    grp.mpi = tot.occPct>0 ? grp.occPct/tot.occPct*100 : 0;
+    grp.ari = tot.adr>0 ? grp.adr/tot.adr*100 : 0;
+    grp.rgi = tot.revpar>0 ? grp.revpar/tot.revpar*100 : 0;
+  }
+  return { hotels:arr, tot, grp };
+}
+function initMarketFilters(){
+  const f = document.getElementById('msFecha');
+  const dates = [...new Set(MS.rows.map(r=>r.fechaStr))].sort();
+  if (dates.length){
+    f.min = dates[0]; f.max = dates[dates.length-1];
+    if (!f.value || f.value<dates[0] || f.value>dates[dates.length-1]) f.value = dates[dates.length-1];
+  }
+}
+function msSetNote(text, kind){
+  const n = document.getElementById('msNote');
+  if (!text){ n.style.display='none'; return; }
+  n.className = 'msnote '+(kind||'info'); n.innerHTML = text; n.style.display='';
+}
+function msIdxSub(id, txt, idx){
+  const el = document.getElementById(id);
+  el.className = 'ksub ' + (idx>=100 ? 'up' : 'down');
+  el.textContent = txt;
+}
+function msRkClass(rk, n){
+  if (rk==null) return 'rk-mid';
+  if (rk<=3) return 'rk-top';
+  if (n>=7 && rk>n-3) return 'rk-low';
+  return 'rk-mid';
+}
+function renderMarket(){
+  if (!MS.loaded) return;
+  document.getElementById('msSheetLink').href = 'https://docs.google.com/spreadsheets/d/'+CFG.sheetId+'/edit';
+  const body = document.getElementById('msBody');
+  if (MS.error){
+    msSetNote('⚠ '+MS.error+' Pasos: crea la pestaña con el formato de la plantilla (Fecha, Hotel, Habitaciones_Disponibles, Cuartos_Ocupados, Ingresos).', 'err');
+    body.innerHTML = '<tr><td colspan="15" class="em">Sin datos de Market Share todavía</td></tr>';
+    document.getElementById('msResumenBody').innerHTML = '<tr><td colspan="9" class="em">—</td></tr>';
+    ['msKOcup','msKAdr','msKRevpar','msKShare','msKRgi'].forEach(id=>document.getElementById(id).textContent='—');
+    ['msChip'].forEach(id=>document.getElementById(id).textContent='—');
+    return;
+  }
+  const fecha = document.getElementById('msFecha').value;
+  if (!fecha) return;
+  const periodo = document.getElementById('msPeriodo').value;
+  const excluir = document.getElementById('msSinReporte').value === 'excluir';
+  const all = msAllRows();
+  const [d1,d2] = msRange(fecha, periodo);
+  const sel = all.filter(r=>r.fechaStr>=d1 && r.fechaStr<=d2);
+  const res = msCompute(msAgg(sel), excluir);
+  const { hotels, tot, grp } = res;
+  const nRank = hotels.filter(h=>h.hasData).length;
+  const dias = new Set(sel.map(r=>r.fechaStr)).size;
+  const autoDias = new Set(sel.filter(r=>r.auto).map(r=>r.fechaStr)).size;
+  const periodoTxt = periodo==='dia' ? 'Día' : periodo==='mtd' ? 'Mes a la fecha' : 'Año a la fecha';
+  document.getElementById('msChip').textContent = periodoTxt+' · '+d1+' → '+d2+' · '+dias+' día(s) · '+hotels.length+' hoteles';
+  document.getElementById('msTablaTitulo').textContent = 'Ranking competitivo — '+periodoTxt;
+  let note = '';
+  if (autoDias>0) note += 'ℹ Para '+autoDias+' día(s) <strong>'+CFG.msTorre+'</strong> y <strong>'+CFG.msOvalo+'</strong> se tomaron automáticamente de las pestañas Director/Óvalo (no estaban capturados en Market Share). ';
+  const sinRep = hotels.filter(h=>!h.hasData).length;
+  if (sinRep>0 && !excluir) note += 'ℹ '+sinRep+' hotel(es) sin reporte cuentan su inventario en los totales (igual que el reporte actual); usa "Excluir de totales" si quieres medir solo a los que reportan.';
+  msSetNote(note, 'info');
+
+  // KPIs
+  if (grp){
+    document.getElementById('msKOcup').textContent = grp.occPct.toFixed(1)+'%';
+    msIdxSub('msKOcupSub','Mercado '+tot.occPct.toFixed(1)+'% · MPI '+grp.mpi.toFixed(0), grp.mpi);
+    document.getElementById('msKAdr').textContent = fmtMoney2(grp.adr);
+    msIdxSub('msKAdrSub','Mercado '+fmtMoney2(tot.adr)+' · ARI '+grp.ari.toFixed(0), grp.ari);
+    document.getElementById('msKRevpar').textContent = fmtMoney2(grp.revpar);
+    msIdxSub('msKRevparSub','Mercado '+fmtMoney2(tot.revpar)+' · RGI '+grp.rgi.toFixed(0), grp.rgi);
+    document.getElementById('msKShare').textContent = grp.shareOcc.toFixed(2)+'%';
+    msIdxSub('msKShareSub','Inventario '+grp.shareHab.toFixed(2)+'% · '+(grp.shareOcc>=grp.shareHab?'ganando':'perdiendo')+' mercado', grp.shareOcc>=grp.shareHab?100:0);
+    document.getElementById('msKRgi').textContent = grp.rgi.toFixed(0);
+    msIdxSub('msKRgiSub','MPI '+grp.mpi.toFixed(0)+' · ARI '+grp.ari.toFixed(0), grp.rgi);
+  } else {
+    ['msKOcup','msKAdr','msKRevpar','msKShare','msKRgi'].forEach(id=>{ document.getElementById(id).textContent='—'; });
+    ['msKOcupSub','msKAdrSub','msKRevparSub','msKShareSub','msKRgiSub'].forEach(id=>{ document.getElementById(id).textContent=''; });
+  }
+
+  // Tabla principal
+  const pos = (rk)=> `<td class="${msRkClass(rk,nRank)}">${rk==null?'—':rk}</td>`;
+  const money = (v,h)=> h.hasData ? fmtMoney2(v) : '—';
+  let html = hotels.map(h=>`<tr class="${h.own?'own-row':''}">
+    <td>${h.hotel}</td><td>${h.hab.toLocaleString('es-MX')}</td><td>${h.shareHab.toFixed(2)}%</td><td>${h.occ.toLocaleString('es-MX')}</td>
+    <td>${h.occPct.toFixed(0)}%</td><td>${h.shareOcc.toFixed(2)}%</td><td class="${h.dif<0?'neg':''}">${h.dif.toFixed(2)}</td>
+    <td>${money(h.adr,h)}</td><td>${h.hasData?fmtMoney2(h.rev):'—'}</td>
+    ${pos(h.rkOcc)}${pos(h.rkShare)}${pos(h.rkAdr)}${pos(h.rkRev)}${pos(h.rkRevpar)}
+    <td>${money(h.revpar,h)}</td></tr>`).join('');
+  html += `<tr class="tot-row"><td>TOTALES</td><td>${tot.hab.toLocaleString('es-MX')}</td><td>100.00%</td><td>${tot.occ.toLocaleString('es-MX')}</td><td>${tot.occPct.toFixed(0)}%</td><td>100.00%</td><td></td><td>${fmtMoney2(tot.adr)}</td><td>${fmtMoney2(tot.rev)}</td><td></td><td></td><td></td><td></td><td></td><td>${fmtMoney2(tot.revpar)}</td></tr>`;
+  body.innerHTML = hotels.length ? html : '<tr><td colspan="15" class="em">Sin datos para esta fecha</td></tr>';
+
+  // Resumen Día / MTD / YTD del Grupo Dunas
+  const resRows = ['dia','mtd','ytd'].map(p=>{
+    const [a,b] = msRange(fecha,p);
+    const r = msCompute(msAgg(all.filter(x=>x.fechaStr>=a && x.fechaStr<=b)), excluir);
+    const nm = p==='dia'?'Día':p==='mtd'?'Mes a la fecha':'Año a la fecha';
+    if (!r.grp) return `<tr><td>${nm}</td><td colspan="8" class="em" style="padding:8px;">Sin datos del grupo</td></tr>`;
+    const g = r.grp, cl = (v)=> v>=100 ? 'money' : 'neg';
+    return `<tr><td>${nm}</td><td>${g.occPct.toFixed(1)}%</td><td>${fmtMoney2(g.adr)}</td><td>${fmtMoney2(g.revpar)}</td><td>${g.shareOcc.toFixed(2)}%</td>
+      <td class="${cl(g.mpi)}">${g.mpi.toFixed(0)}</td><td class="${cl(g.ari)}">${g.ari.toFixed(0)}</td><td class="${cl(g.rgi)}">${g.rgi.toFixed(0)}</td><td>${fmtMoney2(g.rev)}</td></tr>`;
+  });
+  document.getElementById('msResumenBody').innerHTML = resRows.join('');
+
+  // Gráfica: participación
+  const ordered = hotels.filter(h=>h.hasData).sort((a,b)=>b.shareOcc-a.shareOcc);
+  destroyChart('msShare');
+  charts.msShare = new Chart(document.getElementById('chartMsShare'), {
+    type:'bar',
+    data:{ labels: ordered.map(h=>h.hotel), datasets:[
+      { label:'% de inventario', data: ordered.map(h=>+h.shareHab.toFixed(2)), backgroundColor:'#cfd8e3' },
+      { label:'% de cuartos ocupados', data: ordered.map(h=>+h.shareOcc.toFixed(2)), backgroundColor: ordered.map(h=>h.own?'#8a5a2e':'#c9a06f') }
+    ]},
+    options:{ indexAxis:'y', responsive:true, plugins:{ legend:{ position:'bottom', labels:{ boxWidth:10, font:{size:10} } }, tooltip:{ callbacks:{ label:(c)=>c.dataset.label+': '+c.raw.toFixed(2)+'%' } } }, scales:{ x:{ ticks:{ callback:v=>v+'%' } } } }
+  });
+
+  // Gráfica: burbujas tarifa vs ocupación
+  const maxRev = Math.max(1, ...ordered.map(h=>h.rev));
+  const pt = (h)=>({ x:+h.occPct.toFixed(1), y:+h.adr.toFixed(2), r: 6+20*Math.sqrt(h.rev/maxRev), label:h.hotel });
+  destroyChart('msScatter');
+  charts.msScatter = new Chart(document.getElementById('chartMsScatter'), {
+    type:'bubble',
+    data:{ datasets:[
+      { label:'Competencia', data: ordered.filter(h=>!h.own).map(pt), backgroundColor:'rgba(91,143,185,.55)', borderColor:'#5b8fb9' },
+      { label:'Grupo Dunas', data: ordered.filter(h=>h.own).map(pt), backgroundColor:'rgba(138,90,46,.65)', borderColor:'#8a5a2e' }
+    ]},
+    options:{ responsive:true, plugins:{ legend:{ position:'bottom', labels:{ boxWidth:10, font:{size:10} } }, tooltip:{ callbacks:{ label:(c)=>{ const p=c.raw; return p.label+': ocup. '+p.x.toFixed(0)+'% · tarifa $'+p.y.toFixed(0); } } } },
+      scales:{ x:{ title:{display:true,text:'% ocupación'}, ticks:{ callback:v=>v+'%' } }, y:{ title:{display:true,text:'Tarifa promedio'}, ticks:{ callback:v=>'$'+v } } } }
+  });
+
+  renderMarketTrend(all, fecha, periodo, excluir);
+}
+function renderMarketTrend(all, fecha, periodo, excluir){
+  const metrica = document.getElementById('msMetrica').value;
+  const [y,m] = fecha.split('-');
+  let buckets = [];
+  if (periodo==='ytd'){
+    const mesesCorto = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+    for (let mm=1; mm<=parseInt(m,10); mm++){
+      const a = y+'-'+String(mm).padStart(2,'0')+'-01', b = y+'-'+String(mm).padStart(2,'0')+'-31';
+      buckets.push({ label:mesesCorto[mm-1], rows: all.filter(r=>r.fechaStr>=a && r.fechaStr<=(b<fecha?b:fecha)) });
+    }
+    document.getElementById('msTrendSub').textContent = 'Por mes, de enero a la fecha seleccionada';
+  } else {
+    const days = [...new Set(all.filter(r=>r.fechaStr>=y+'-'+m+'-01' && r.fechaStr<=fecha).map(r=>r.fechaStr))].sort();
+    buckets = days.map(d=>({ label:d.slice(8,10)+'/'+d.slice(5,7), rows: all.filter(r=>r.fechaStr===d) }));
+    document.getElementById('msTrendSub').textContent = 'Por día, del 1 del mes a la fecha seleccionada';
+  }
+  const pick = (r)=> metrica==='ocup' ? r.occPct : metrica==='adr' ? r.adr : r.revpar;
+  const grpSeries = [], mktSeries = [];
+  for (const b of buckets){
+    const r = msCompute(msAgg(b.rows), excluir);
+    mktSeries.push(r.tot.hab>0 ? +pick(r.tot).toFixed(2) : null);
+    grpSeries.push(r.grp ? +pick(r.grp).toFixed(2) : null);
+  }
+  const fmt = metrica==='ocup' ? (v)=>v+'%' : (v)=>'$'+v;
+  destroyChart('msTrend');
+  charts.msTrend = new Chart(document.getElementById('chartMsTrend'), {
+    type:'line',
+    data:{ labels: buckets.map(b=>b.label), datasets:[
+      { label:'Grupo Dunas', data:grpSeries, borderColor:'#8a5a2e', backgroundColor:'rgba(138,90,46,.12)', fill:true, tension:.3, spanGaps:true },
+      { label:'Mercado', data:mktSeries, borderColor:'#5b8fb9', fill:false, tension:.3, borderDash:[5,3], spanGaps:true }
+    ]},
+    options:{ responsive:true, plugins:{ legend:{ position:'bottom', labels:{ boxWidth:10, font:{size:10} } } }, scales:{ y:{ ticks:{ callback:fmt } } } }
+  });
+}
+['msFecha','msPeriodo','msSinReporte','msMetrica'].forEach(id=>document.getElementById(id).addEventListener('change', renderMarket));
+document.getElementById('msUltimo').addEventListener('click', ()=>{
+  const dates = [...new Set(MS.rows.map(r=>r.fechaStr))].sort();
+  if (dates.length){ document.getElementById('msFecha').value = dates[dates.length-1]; renderMarket(); }
+});
+
 /* ================= EVENTS ================= */
 document.getElementById('secTabs').addEventListener('click', (e)=>{
   const btn = e.target.closest('.htab'); if (!btn) return;
@@ -1276,10 +1651,12 @@ document.getElementById('secTabs').addEventListener('click', (e)=>{
   currentSection = btn.dataset.sec;
   const isVentas = currentSection === 'ventas';
   document.getElementById('ventasSection').style.display = isVentas ? '' : 'none';
-  document.getElementById('resultadosSection').style.display = isVentas ? 'none' : '';
+  document.getElementById('resultadosSection').style.display = currentSection==='resultados' ? '' : 'none';
+  document.getElementById('marketSection').style.display = currentSection==='market' ? '' : 'none';
   document.getElementById('propTabs').style.display = isVentas ? '' : 'none';
   document.querySelector('.hdr-kpis').style.display = isVentas ? '' : 'none';
-  if (!isVentas && !PPTO.loaded) loadPPTO();
+  if (currentSection==='resultados' && !PPTO.loaded) loadPPTO();
+  if (currentSection==='market'){ if (!MS.loaded) loadMarket(); else renderMarket(); }
 });
 document.getElementById('erProp').addEventListener('change', renderResultados);
 document.getElementById('erMes').addEventListener('change', renderResultados);
@@ -1336,7 +1713,7 @@ document.querySelectorAll('th[data-k]').forEach(th=>th.addEventListener('click',
   tblSort.dir = (tblSort.k===k) ? -tblSort.dir : 1; tblSort.k = k;
   renderTable(filterByDate(getYearData(currentProp,'2026'), document.getElementById('fDesde').value, document.getElementById('fHasta').value));
 }));
-document.getElementById('btnRefresh').addEventListener('click', ()=>{ toast('Actualizando…'); loadAll(); if (PPTO.loaded) loadPPTO(); });
+document.getElementById('btnRefresh').addEventListener('click', ()=>{ toast('Actualizando…'); loadAll(); if (PPTO.loaded) loadPPTO(); if (MS.loaded) loadMarket(); });
 document.getElementById('btnSettings').addEventListener('click', ()=>{ fillSettingsForm(); openModal('modalSettings'); });
 
 function fillSettingsForm(){
@@ -1347,6 +1724,10 @@ function fillSettingsForm(){
   document.getElementById('cfgOvalo2025').value = CFG.tabs.ovalo2025;
   document.getElementById('cfgPptoDunas').value = CFG.tabs.pptoDunas;
   document.getElementById('cfgPptoOvalo').value = CFG.tabs.pptoOvalo;
+  document.getElementById('cfgMarket').value = CFG.tabs.market;
+  document.getElementById('cfgMsTorre').value = CFG.msTorre;
+  document.getElementById('cfgMsOvalo').value = CFG.msOvalo;
+  document.getElementById('cfgMsAuto').value = CFG.msAuto ? '1' : '0';
   document.getElementById('cfgRoomsTorre').value = CFG.roomsFallback;
   document.getElementById('cfgAutoRefresh').value = CFG.autoRefreshMin;
   document.getElementById('cfgMapTorre2026').value = JSON.stringify({map:CFG.mapTorre2026, segments:CFG.segTorre2026}, null, 1);
@@ -1363,6 +1744,10 @@ document.getElementById('btnSaveSettings').addEventListener('click', async ()=>{
     CFG.tabs.ovalo2025 = document.getElementById('cfgOvalo2025').value.trim();
     CFG.tabs.pptoDunas = document.getElementById('cfgPptoDunas').value.trim();
     CFG.tabs.pptoOvalo = document.getElementById('cfgPptoOvalo').value.trim();
+    CFG.tabs.market = document.getElementById('cfgMarket').value.trim() || 'MARKET SHARE';
+    CFG.msTorre = document.getElementById('cfgMsTorre').value.trim();
+    CFG.msOvalo = document.getElementById('cfgMsOvalo').value.trim();
+    CFG.msAuto = document.getElementById('cfgMsAuto').value === '1';
     CFG.roomsFallback = parseInt(document.getElementById('cfgRoomsTorre').value)||CFG.roomsFallback;
     CFG.autoRefreshMin = parseInt(document.getElementById('cfgAutoRefresh').value)||0;
     const t26 = JSON.parse(document.getElementById('cfgMapTorre2026').value);
@@ -1380,6 +1765,8 @@ document.getElementById('btnSaveSettings').addEventListener('click', async ()=>{
     loadAll();
     PPTO.loaded = false;
     if (currentSection === 'resultados') loadPPTO();
+    MS.loaded = false;
+    if (currentSection === 'market') loadMarket();
   }catch(e){ toast('Error en el JSON de mapeo de columnas'); }
 });
 
@@ -1387,7 +1774,7 @@ document.getElementById('btnSaveSettings').addEventListener('click', async ()=>{
 let autoRefreshTimer = null;
 function setupAutoRefresh(){
   if (autoRefreshTimer) clearInterval(autoRefreshTimer);
-  if (CFG.autoRefreshMin > 0) autoRefreshTimer = setInterval(loadAll, CFG.autoRefreshMin*60*1000);
+  if (CFG.autoRefreshMin > 0) autoRefreshTimer = setInterval(()=>{ loadAll(); if (MS.loaded) loadMarket(); }, CFG.autoRefreshMin*60*1000);
 }
 
 /* ================= INIT ================= */
